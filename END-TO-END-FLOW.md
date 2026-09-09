@@ -21,6 +21,7 @@
 14. [Starting & Stopping Servers](#14-starting--stopping-servers)
 15. [Load Testing Guide](#15-load-testing-guide)
 16. [Troubleshooting](#16-troubleshooting)
+17. [Production Build & Deployment](#17-production-build--deployment)
 
 ---
 
@@ -2353,6 +2354,846 @@ DEBUG=express:* npm run dev
 | GET | /api/v1/admin/users | List users | Yes (Admin) |
 | PUT | /api/v1/admin/users/:id/role | Update role | Yes (Admin) |
 | PUT | /api/v1/admin/users/:id/status | Update status | Yes (Admin) |
+
+---
+
+## 17. Production Build & Deployment
+
+### Overview
+
+This section covers building the application for production and deploying both frontend and backend to a production environment.
+
+### Production Build Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PRODUCTION DEPLOYMENT                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  BUILD PROCESS                                            │  │
+│  │  ─────────────                                            │  │
+│  │  1. TypeScript compilation (tsc)                         │  │
+│  │  2. Bundle optimization (webpack/turbopack)              │  │
+│  │  3. Minification (terser)                                │  │
+│  │  4. Tree shaking (remove unused code)                    │  │
+│  │  5. Asset optimization (images, CSS)                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          │                                       │
+│                          ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  OUTPUT                                                   │  │
+│  │  ──────                                                   │  │
+│  │  Backend:  backend/dist/ (compiled JS files)             │  │
+│  │  Frontend: frontend/.next/ (optimized React app)         │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          │                                       │
+│                          ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  DEPLOYMENT                                               │  │
+│  │  ──────────                                               │  │
+│  │  Option 1: Docker containers                             │  │
+│  │  Option 2: Manual server deployment                      │  │
+│  │  Option 3: Cloud platform (AWS, GCP, Azure)              │  │
+│  │  Option 4: Vercel (frontend) + Railway (backend)         │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Step 1: Build Backend for Production
+
+#### 1.1 Install Dependencies
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Install production dependencies only
+npm ci --omit=dev
+```
+
+#### 1.2 Set Environment Variables
+
+Create a production `.env` file:
+
+```bash
+# backend/.env.production
+
+# Database
+DATABASE_URL="postgresql://username:password@your-db-host:5432/luckydraw"
+
+# Redis
+REDIS_URL="redis://your-redis-host:6379"
+
+# JWT (USE A STRONG SECRET!)
+JWT_SECRET="your-very-long-random-secret-key-at-least-32-characters"
+JWT_EXPIRES_IN="24h"
+
+# Server
+PORT=3000
+NODE_ENV=production
+
+# CORS (your production domain)
+CORS_ORIGIN="https://luckydraw.sathapana.com.kh"
+```
+
+#### 1.3 Generate Prisma Client
+
+```bash
+# Generate Prisma client for production
+npx prisma generate
+```
+
+#### 1.4 Build TypeScript
+
+```bash
+# Compile TypeScript to JavaScript
+npm run build
+
+# This creates:
+# backend/dist/
+#   ├── server.js        (main entry point)
+#   ├── config/          (compiled config files)
+#   ├── routes/          (compiled route handlers)
+#   ├── services/        (compiled services)
+#   ├── middleware/       (compiled middleware)
+#   └── utils/           (compiled utilities)
+```
+
+#### 1.5 Verify Build
+
+```bash
+# Check if build succeeded
+ls -la dist/
+
+# Should show:
+# dist/
+#   ├── server.js
+#   ├── config/
+#   ├── routes/
+#   ├── services/
+#   ├── middleware/
+#   └── utils/
+```
+
+#### 1.6 Run Database Migrations
+
+```bash
+# Push schema to production database
+npx prisma db push
+
+# Or use migrations (recommended for production)
+npx prisma migrate deploy
+```
+
+#### 1.7 Seed Production Database
+
+```bash
+# Only run once for initial setup
+npx prisma db seed
+```
+
+---
+
+### Step 2: Build Frontend for Production
+
+#### 2.1 Install Dependencies
+
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Install all dependencies (including dev for build)
+npm ci
+```
+
+#### 2.2 Set Environment Variables
+
+Create a production `.env.production` file:
+
+```bash
+# frontend/.env.production
+
+# Backend API URL (production)
+NEXT_PUBLIC_API_URL=https://api.luckydraw.sathapana.com.kh/api/v1
+
+# Optional: Analytics, tracking, etc.
+NEXT_PUBLIC_GA_ID=UA-XXXXXXXXX-X
+```
+
+#### 2.3 Build Next.js Application
+
+```bash
+# Build for production
+npm run build
+
+# This creates:
+# frontend/.next/
+#   ├── static/          (optimized JS/CSS bundles)
+#   ├── server/          (server-side rendering)
+#   ├── build-manifest.json
+#   └── ... (other build files)
+```
+
+#### 2.4 Verify Build
+
+```bash
+# Check if build succeeded
+ls -la .next/
+
+# Should show build output directory
+```
+
+#### 2.5 Export Static Pages (Optional)
+
+If you want to export as static HTML:
+
+```bash
+# Add to next.config.js:
+# module.exports = { output: 'export' }
+
+npm run build
+# Output will be in: frontend/out/
+```
+
+---
+
+### Step 3: Deploy with Docker (Recommended)
+
+#### 3.1 Build Docker Images
+
+```bash
+# Navigate to project root
+cd sathapana-luckydraw
+
+# Build all images
+docker-compose -f docker-compose.prod.yml build
+
+# Or build individually
+docker build -t luckydraw-backend:latest ./backend
+docker build -t luckydraw-frontend:latest ./frontend
+```
+
+#### 3.2 Production Docker Compose
+
+Create `docker-compose.prod.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  # ==================== DATABASE ====================
+  postgres:
+    image: postgres:15-alpine
+    container_name: luckydraw-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: luckydraw
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - luckydraw-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: luckydraw-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - luckydraw-network
+
+  # ==================== BACKEND ====================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: luckydraw-backend
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/luckydraw
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=24h
+      - NODE_ENV=production
+      - PORT=3000
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - luckydraw-network
+
+  # ==================== FRONTEND ====================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    container_name: luckydraw-frontend
+    restart: always
+    ports:
+      - '3001:3000'
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - luckydraw-network
+
+  # ==================== NGINX (REVERSE PROXY) ====================
+  nginx:
+    image: nginx:alpine
+    container_name: luckydraw-nginx
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - luckydraw-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  luckydraw-network:
+    driver: bridge
+```
+
+#### 3.3 Create Environment File
+
+```bash
+# .env.production
+
+# Database
+POSTGRES_USER=your_db_user
+POSTGRES_PASSWORD=your_secure_password_here
+
+# JWT (GENERATE A STRONG SECRET!)
+JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long
+
+# CORS
+CORS_ORIGIN=https://luckydraw.sathapana.com.kh
+
+# Frontend API URL
+NEXT_PUBLIC_API_URL=https://api.luckydraw.sathapana.com.kh/api/v1
+```
+
+#### 3.4 Deploy
+
+```bash
+# Start all services
+docker-compose -f docker-compose.prod.yml up -d
+
+# Check status
+docker-compose -f docker-compose.prod.yml ps
+
+# View logs
+docker-compose -f docker-compose.prod.yml logs -f
+
+# Run database migrations
+docker-compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy
+
+# Seed database (first time only)
+docker-compose -f docker-compose.prod.yml exec backend npx prisma db seed
+```
+
+#### 3.5 SSL/HTTPS Setup
+
+Create Nginx configuration with SSL:
+
+```nginx
+# nginx/nginx.conf
+
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    # Upstream servers
+    upstream frontend {
+        server frontend:3000;
+    }
+    
+    upstream backend {
+        server backend:3000;
+    }
+    
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+    
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    
+    # HTTP to HTTPS redirect
+    server {
+        listen 80;
+        server_name luckydraw.sathapana.com.kh api.luckydraw.sathapana.com.kh;
+        return 301 https://$host$request_uri;
+    }
+    
+    # Frontend (HTTPS)
+    server {
+        listen 443 ssl http2;
+        server_name luckydraw.sathapana.com.kh;
+        
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        
+        location / {
+            proxy_pass http://frontend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+    
+    # Backend API (HTTPS)
+    server {
+        listen 443 ssl http2;
+        server_name api.luckydraw.sathapana.com.kh;
+        
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+        
+        location /health {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+
+### Step 4: Deploy to Cloud Platforms
+
+#### Option A: Deploy to AWS
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AWS DEPLOYMENT ARCHITECTURE                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐                                               │
+│  │   Route 53   │  DNS Management                               │
+│  └──────┬───────┘                                               │
+│         │                                                        │
+│         ▼                                                        │
+│  ┌──────────────┐                                               │
+│  │     ALB      │  Application Load Balancer                    │
+│  │  (SSL/TLS)   │  Handles HTTPS termination                   │
+│  └──────┬───────┘                                               │
+│         │                                                        │
+│    ┌────┴────┐                                                  │
+│    ▼         ▼                                                  │
+│  ┌─────┐  ┌─────┐                                              │
+│  │ ECS │  │ ECS │  ECS Fargate (containers)                    │
+│  │Front│  │Back │  Auto-scaling                                 │
+│  └─────┘  └─────┘                                              │
+│    │         │                                                  │
+│    │    ┌────┴────┐                                            │
+│    │    ▼         ▼                                            │
+│    │  ┌─────┐  ┌─────┐                                        │
+│    │  │RDS  │  │ElastiCache│  Managed database & cache        │
+│    │  │Postgr│  │  Redis   │                                    │
+│    │  └─────┘  └─────┘                                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**AWS Deployment Steps:**
+
+```bash
+# 1. Push Docker images to ECR
+aws ecr get-login-password --region ap-southeast-1 | \
+  docker login --username AWS --password-stdin <account-id>.dkr.ecr.ap-southeast-1.amazonaws.com
+
+# Tag images
+docker tag luckydraw-backend:latest <account-id>.dkr.ecr.ap-southeast-1.amazonaws.com/luckydraw-backend:latest
+docker tag luckydraw-frontend:latest <account-id>.dkr.ecr.ap-southeast-1.amazonaws.com/luckydraw-frontend:latest
+
+# Push to ECR
+docker push <account-id>.dkr.ecr.ap-southeast-1.amazonaws.com/luckydraw-backend:latest
+docker push <account-id>.dkr.ecr.ap-southeast-1.amazonaws.com/luckydraw-frontend:latest
+
+# 2. Create ECS cluster and services
+# Use AWS Console or CLI to create ECS Fargate services
+
+# 3. Set up RDS PostgreSQL
+# Create RDS instance with proper security groups
+
+# 4. Set up ElastiCache Redis
+# Create Redis cluster
+
+# 5. Configure ALB with SSL certificate
+# Use AWS Certificate Manager for SSL
+```
+
+#### Option B: Deploy to DigitalOcean
+
+```bash
+# 1. Create a Droplet (4GB RAM minimum)
+# 2. Install Docker
+ssh root@your-droplet-ip
+
+apt-get update
+apt-get install -y docker.io docker-compose
+
+# 3. Clone repository
+git clone https://github.com/your-repo/sathapana-luckydraw.git
+cd sathapana-luckydraw
+
+# 4. Create environment file
+cp .env.example .env.production
+nano .env.production  # Edit with production values
+
+# 5. Start services
+docker-compose -f docker-compose.prod.yml up -d
+
+# 6. Set up SSL with Certbot
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d luckydraw.sathapana.com.kh -d api.luckydraw.sathapana.com.kh
+```
+
+#### Option C: Deploy to Vercel (Frontend) + Railway (Backend)
+
+**Frontend on Vercel:**
+
+```bash
+# 1. Install Vercel CLI
+npm i -g vercel
+
+# 2. Login to Vercel
+vercel login
+
+# 3. Deploy frontend
+cd frontend
+vercel --prod
+
+# 4. Set environment variables in Vercel dashboard
+# NEXT_PUBLIC_API_URL=https://api.luckydraw.sathapana.com.kh/api/v1
+```
+
+**Backend on Railway:**
+
+```bash
+# 1. Install Railway CLI
+npm i -g @railway/cli
+
+# 2. Login to Railway
+railway login
+
+# 3. Initialize project
+cd backend
+railway init
+
+# 4. Add PostgreSQL plugin
+railway add --plugin postgresql
+
+# 5. Add Redis plugin
+railway add --plugin redis
+
+# 6. Set environment variables
+railway variables set JWT_SECRET=your-secret-key
+railway variables set NODE_ENV=production
+railway variables set CORS_ORIGIN=https://luckydraw.sathapana.com.kh
+
+# 7. Deploy
+railway up
+
+# 8. Run migrations
+railway run npx prisma migrate deploy
+
+# 9. Seed database
+railway run npx prisma db seed
+```
+
+---
+
+### Step 5: CI/CD Deployment
+
+#### GitHub Actions Auto-Deploy
+
+The CI/CD pipeline automatically deploys when you push to `main` or `develop` branches:
+
+```yaml
+# .github/workflows/deploy.yml
+
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build and push Docker images
+        run: |
+          docker build -t luckydraw-backend:latest ./backend
+          docker build -t luckydraw-frontend:latest ./frontend
+          # Push to your registry...
+      
+      - name: Deploy to server
+        run: |
+          ssh your-server 'cd /app && git pull && docker-compose up -d --build'
+```
+
+#### Manual Deployment Script
+
+Create `deploy.sh`:
+
+```bash
+#!/bin/bash
+
+# Sathapana Lucky Draw - Deployment Script
+set -e
+
+echo "🚀 Starting deployment..."
+
+# 1. Pull latest code
+echo "📥 Pulling latest code..."
+git pull origin main
+
+# 2. Build backend
+echo "🔨 Building backend..."
+cd backend
+npm ci --omit=dev
+npm run build
+npx prisma generate
+npx prisma migrate deploy
+cd ..
+
+# 3. Build frontend
+echo "🔨 Building frontend..."
+cd frontend
+npm ci
+npm run build
+cd ..
+
+# 4. Restart services
+echo "🔄 Restarting services..."
+docker-compose -f docker-compose.prod.yml up -d --build
+
+# 5. Verify deployment
+echo "✅ Verifying deployment..."
+sleep 10
+curl -f http://localhost:3000/health || exit 1
+
+echo "✅ Deployment complete!"
+```
+
+Make it executable:
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+---
+
+### Step 6: Post-Deployment Verification
+
+#### 6.1 Health Check
+
+```bash
+# Backend health
+curl https://api.luckydraw.sathapana.com.kh/health
+
+# Expected response:
+{
+  "status": "healthy",
+  "services": {
+    "database": "connected",
+    "redis": "connected"
+  },
+  "uptime": 3600
+}
+```
+
+#### 6.2 Test API Endpoints
+
+```bash
+# Test login
+curl -X POST https://api.luckydraw.sathapana.com.kh/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@sathapana.com.kh", "password": "password123"}'
+
+# Test campaigns
+curl https://api.luckydraw.sathapana.com.kh/api/v1/campaigns \
+  -H "Authorization: Bearer <your-token>"
+```
+
+#### 6.3 Check Frontend
+
+```bash
+# Open in browser
+https://luckydraw.sathapana.com.kh
+
+# Or test with curl
+curl -I https://luckydraw.sathapana.com.kh
+
+# Should return:
+# HTTP/2 200
+# content-type: text/html
+```
+
+---
+
+### Step 7: Monitoring & Maintenance
+
+#### 7.1 Application Monitoring
+
+```bash
+# Check container status
+docker-compose -f docker-compose.prod.yml ps
+
+# View real-time logs
+docker-compose -f docker-compose.prod.yml logs -f
+
+# Check specific service
+docker-compose -f docker-compose.prod.yml logs backend
+```
+
+#### 7.2 Database Backup
+
+```bash
+# Automated backup script
+#!/bin/bash
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="/backups/postgres"
+
+mkdir -p $BACKUP_DIR
+
+# Backup database
+docker-compose -f docker-compose.prod.yml exec postgres \
+  pg_dump -U postgres luckydraw > $BACKUP_DIR/luckydraw_$DATE.sql
+
+# Keep only last 30 days
+find $BACKUP_DIR -name "*.sql" -mtime +30 -delete
+```
+
+#### 7.3 Log Rotation
+
+Add to `docker-compose.prod.yml`:
+
+```yaml
+services:
+  backend:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+---
+
+### Quick Deployment Reference
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DEPLOYMENT QUICK REFERENCE                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  BUILD COMMANDS                                                  │
+│  ──────────────                                                  │
+│  Backend:   cd backend && npm run build                         │
+│  Frontend:  cd frontend && npm run build                        │
+│  Docker:    docker-compose build                                │
+│                                                                  │
+│  DEPLOY COMMANDS                                                 │
+│  ───────────────                                                 │
+│  Docker:    docker-compose -f docker-compose.prod.yml up -d    │
+│  Manual:    ./deploy.sh                                         │
+│  Vercel:    vercel --prod                                       │
+│  Railway:   railway up                                          │
+│                                                                  │
+│  DATABASE COMMANDS                                               │
+│  ────────────────                                                │
+│  Migrate:   npx prisma migrate deploy                          │
+│  Seed:      npx prisma db seed                                 │
+│  Reset:     npx prisma migrate reset                           │
+│                                                                  │
+│  VERIFICATION                                                    │
+│  ────────────                                                    │
+│  Health:    curl https://api.yourdomain.com/health              │
+│  Frontend:  curl -I https://yourdomain.com                      │
+│  Logs:      docker-compose logs -f                              │
+│                                                                  │
+│  TROUBLESHOOTING                                                 │
+│  ───────────────                                                 │
+│  Status:    docker-compose ps                                   │
+│  Logs:      docker-compose logs [service]                       │
+│  Restart:   docker-compose restart [service]                    │
+│  Shell:     docker-compose exec [service] bash                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
