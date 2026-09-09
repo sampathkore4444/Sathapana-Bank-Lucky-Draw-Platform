@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Testing
+coverage/
+tests/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# TypeScript
+*.tsbuildinfo
+
+# Prisma migrations (keep schema.prisma)
+prisma/migrations/
+prisma/*.db
+
+# Security reports
+security/reports/
+
+# Load tests
+loadtests/*-summary.json
