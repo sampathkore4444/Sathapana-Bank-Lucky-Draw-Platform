@@ -1,0 +1,30 @@
+{
+  "admin": {
+    "email": "admin@sathapana.com.kh",
+    "password": "password123",
+    "firstName": "Admin",
+    "lastName": "User",
+    "role": "SUPER_ADMIN"
+  },
+  "manager": {
+    "email": "manager@sathapana.com.kh",
+    "password": "password123",
+    "firstName": "Manager",
+    "lastName": "User",
+    "role": "CAMPAIGN_MANAGER"
+  },
+  "customer": {
+    "email": "customer@test.com",
+    "password": "TestPass123!",
+    "firstName": "Test",
+    "lastName": "Customer",
+    "role": "CUSTOMER"
+  },
+  "newUser": {
+    "email": "newuser@test.com",
+    "password": "NewUser123!",
+    "firstName": "New",
+    "lastName": "User",
+    "phone": "+855123456789"
+  }
+}

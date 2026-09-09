@@ -1,0 +1,167 @@
+# ==================== DEPENDENCIES ====================
+node_modules/
+.pnp
+.pnp.js
+
+# ==================== BUILD OUTPUT ====================
+# Backend
+backend/dist/
+backend/build/
+backend/out/
+
+# Frontend
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# ==================== ENVIRONMENT FILES ====================
+# Never commit secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+frontend/.env.local
+
+# ==================== IDE & EDITOR ====================
+# VS Code
+.vscode/
+*.code-workspace
+
+# IntelliJ/WebStorm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.#*
+
+# ==================== OS FILES ====================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+
+# ==================== TESTING ====================
+# Coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Jest
+jest_cache/
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+cypress/results/
+cypress/support/e2e.ts  # Generated
+
+# k6
+*.json  # Load test results (except fixtures)
+
+# ==================== DOCKER ====================
+# Docker volumes (local data)
+postgres_data/
+redis_data/
+
+# Docker build cache
+.docker/
+
+# ==================== LOGS ====================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Winston logs
+backend/logs/
+
+# ==================== SECURITY ====================
+# Never commit these
+*.pem
+*.key
+*.cert
+*.crt
+backend/security/reports/
+.snyk
+
+# ==================== PRISMA ====================
+# Prisma migrations (keep schema.prisma)
+backend/prisma/migrations/
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# ==================== TYPESCRIPT ====================
+*.tsbuildinfo
+backend/tsconfig.tsbuildinfo
+
+# ==================== CACHE ====================
+.npm
+.yarn
+.pnp-cache
+.cache/
+
+# ==================== TEMPORARY ====================
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ==================== DOCUMENTATION ====================
+# Keep SPEC.md, README.md, END-TO-END-FLOW.md
+# But ignore generated docs
+docs/api/  # Generated API docs
+docs/swagger/  # Generated Swagger
+
+# ==================== K6 RESULTS ====================
+backend/loadtests/*-summary.json
+backend/loadtests/*.csv
+
+# ==================== COVERAGE REPORTS ====================
+# Backend coverage
+backend/coverage/
+backend/.nyc_output/
+
+# ==================== NEXT.JS ====================
+# Next.js
+frontend/.next/
+frontend/out/
+
+# ==================== PRISMA ====================
+# Prisma
+backend/prisma/migrations/
+
+# ==================== MISC ====================
+*.p12
+*.pfx
+*.key
+*.pem

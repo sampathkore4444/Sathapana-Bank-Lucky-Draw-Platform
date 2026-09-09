@@ -1,0 +1,312 @@
+// Prisma Schema for Sathapana Bank Lucky Draw Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER & AUTH ====================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  role          UserRole  @default(READ_ONLY)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  campaignsCreated  Campaign[]        @relation("CampaignCreator")
+  campaignsApproved Campaign[]        @relation("CampaignApprover")
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  CAMPAIGN_MANAGER
+  MARKETING_MANAGER
+  DRAW_OPERATOR
+  PRIZE_COORDINATOR
+  COMPLIANCE_OFFICER
+  READ_ONLY
+}
+
+// ==================== CAMPAIGN ====================
+
+model Campaign {
+  id                    String         @id @default(uuid())
+  name                  String
+  description           String?
+  type                  CampaignType
+  status                CampaignStatus @default(DRAFT)
+  startDate             DateTime
+  endDate               DateTime
+  drawDate              DateTime
+  eligibilityCriteria   Json           @default("{}")
+  entryRules            Json           @default("[]")
+  drawSettings          Json           @default("{}")
+  termsAndConditions    String?
+  notificationSettings  Json           @default("{}")
+  metadata              Json           @default("{}")
+
+  // Audit fields
+  createdBy             String
+  createdAt             DateTime       @default(now())
+  updatedBy             String?
+  updatedAt             DateTime       @updatedAt
+  approvedBy            String?
+  approvedAt            DateTime?
+
+  // Relations
+  creator               User           @relation("CampaignCreator", fields: [createdBy], references: [id])
+  approver              User?          @relation("CampaignApprover", fields: [approvedBy], references: [id])
+  entries               CustomerEntry[]
+  prizes                Prize[]
+  drawResults           DrawResult[]
+  notifications         Notification[]
+
+  @@index([status])
+  @@index([type])
+  @@index([startDate, endDate])
+}
+
+enum CampaignType {
+  TRANSACTION_BASED
+  DEPOSIT_BASED
+  ACCOUNT_OPENING
+  MILESTONE
+  REFERRAL
+  HYBRID
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  DRAW_DAY
+  DRAWN
+  CLOSED
+  CANCELLED
+}
+
+// ==================== CUSTOMER ENTRY ====================
+
+model CustomerEntry {
+  id                    String   @id @default(uuid())
+  customerId            String
+  campaignId            String
+  accountId             String?
+  entryType             EntryType
+  entriesEarned         Int
+  cumulativeEntries     Int
+  triggerTransactionId  String?
+  entryDate             DateTime @default(now())
+  verified              Boolean  @default(false)
+  verificationSource    String?
+  metadata              Json     @default("{}")
+  createdAt             DateTime @default(now())
+
+  // Relations
+  campaign              Campaign @relation(fields: [campaignId], references: [id])
+
+  @@unique([campaignId, customerId, triggerTransactionId])
+  @@index([customerId])
+  @@index([campaignId])
+  @@index([entryDate])
+}
+
+enum EntryType {
+  ACCOUNT_OPENED
+  DEPOSIT
+  FUND_TRANSFER
+  MOBILE_TRANSACTION
+  REFERRAL
+  MILESTONE_ACHIEVED
+  MANUAL
+}
+
+// ==================== PRIZE ====================
+
+model Prize {
+  id                      String   @id @default(uuid())
+  campaignId              String
+  rank                    Int
+  name                    String
+  category                PrizeCategory
+  description             String?
+  quantity                Int
+  allocated               Int      @default(0)
+  fulfilled               Int      @default(0)
+  estimatedValue          Float
+  currency                String   @default("USD")
+  vendorName              String?
+  vendorContact           Json?
+  fulfillmentInstructions String?
+  alternativesOffered     Json     @default("[]")
+  termsAndConditions      String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  // Relations
+  campaign                Campaign @relation(fields: [campaignId], references: [id])
+  winners                 DrawWinner[]
+
+  @@index([campaignId])
+  @@index([rank])
+}
+
+enum PrizeCategory {
+  VEHICLE
+  ELECTRONICS
+  GOLD
+  JEWELRY
+  CASH
+  TRAVEL
+  SERVICE
+  MERCHANDISE
+}
+
+// ==================== DRAW RESULT ====================
+
+model DrawResult {
+  id                String    @id @default(uuid())
+  campaignId        String
+  drawDate          DateTime
+  totalParticipants Int
+  totalEntries      Int
+  seed              String
+  auditHash         String
+  executedBy        String[]
+  witnessedBy       String[]
+  isVerified        Boolean   @default(false)
+  verifiedAt        DateTime?
+  metadata          Json      @default("{}")
+  createdAt         DateTime  @default(now())
+
+  // Relations
+  campaign          Campaign  @relation(fields: [campaignId], references: [id])
+  winners           DrawWinner[]
+
+  @@index([campaignId])
+  @@index([drawDate])
+}
+
+// ==================== DRAW WINNER ====================
+
+model DrawWinner {
+  id              String       @id @default(uuid())
+  drawResultId    String
+  customerId      String
+  prizeId         String
+  rank            Int
+  entriesAtDraw   Int
+  isAlternate     Boolean      @default(false)
+  status          WinnerStatus @default(SELECTED)
+  verifiedAt      DateTime?
+  contactedAt     DateTime?
+  acceptedAt      DateTime?
+  fulfilledAt     DateTime?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Relations
+  drawResult      DrawResult   @relation(fields: [drawResultId], references: [id])
+  prize           Prize        @relation(fields: [prizeId], references: [id])
+
+  @@index([customerId])
+  @@index([prizeId])
+  @@index([status])
+}
+
+enum WinnerStatus {
+  SELECTED
+  VERIFIED
+  CONTACTED
+  ACCEPTED
+  DECLINED
+  FULFILLED
+  EXPIRED
+}
+
+// ==================== NOTIFICATION ====================
+
+model Notification {
+  id          String   @id @default(uuid())
+  campaignId  String?
+  customerId  String
+  type        NotificationType
+  channel     NotificationChannel
+  subject     String?
+  message     String
+  status      NotificationStatus @default(PENDING)
+  sentAt      DateTime?
+  readAt      DateTime?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  // Relations
+  campaign    Campaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([customerId])
+  @@index([type])
+  @@index([status])
+}
+
+enum NotificationType {
+  WELCOME
+  ENTRY_CONFIRMATION
+  ENTRY_MILESTONE
+  DRAW_REMINDER
+  DRAW_DAY
+  WINNER_ANNOUNCEMENT
+  PRIZE_CLAIM
+  GENERAL
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+// ==================== AUDIT LOG ====================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  entityType  String
+  entityId    String
+  action      String
+  performedBy String
+  details     Json     @default("{}")
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  user        User?    @relation(fields: [performedBy], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([performedBy])
+  @@index([createdAt])
+}

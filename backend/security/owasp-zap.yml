@@ -1,0 +1,170 @@
+# OWASP ZAP Configuration for Sathapana Lucky Draw Platform
+# Run with: docker run -v $(pwd)/backend/security:/zap/wrk/:rw owasp/zap2docker-stable zap-full-scan.py -t http://localhost:3000 -c /zap/wrk/owasp-zap.yml
+
+---
+env:
+  context:
+    # Define the context
+    name: "Sathapana Lucky Draw"
+    urls:
+      - "http://localhost:3000"
+      - "http://localhost:3000/api/v1"
+    includePaths:
+      - "http://localhost:3000/api/v1/*"
+    excludePaths:
+      - "http://localhost:3000/health"
+      - "http://localhost:3000/ready"
+      - "*.js"
+      - "*.css"
+      - "*.png"
+      - "*.jpg"
+      - "*.ico"
+    authentication:
+      method: "form"
+      parameters:
+        loginUrl: "http://localhost:3000/api/v1/auth/login"
+        loginRequestData: "email={%username%}&password={%password%}"
+      verification:
+        method: "response"
+        loggedInRegex: "\\Qtoken\\E"
+
+  parameters:
+    failOnError: true
+    progressToStdout: true
+
+  policies:
+    # Scan policy configuration
+    scanPolicy:
+      name: "Sathapana Security Scan"
+      
+      # Alert thresholds
+      thresholds:
+        high: 0
+        medium: 5
+        low: 10
+      
+      # Scanner configurations
+      scanners:
+        # Active Scan Rules
+        activeScan:
+          enabled: true
+          rules:
+            - id: 40012
+              name: "Cross Site Scripting (Reflected)"
+              enabled: true
+            - id: 40014
+              name: "Cross Site Scripting (Persistent)"
+              enabled: true
+            - id: 40018
+              name: "SQL Injection"
+              enabled: true
+            - id: 40019
+              name: "SQL Injection (MySQL)"
+              enabled: true
+            - id: 40020
+              name: "SQL Injection (Hypersonic)"
+              enabled: true
+            - id: 40021
+              name: "SQL Injection (Oracle)"
+              enabled: true
+            - id: 40022
+              name: "SQL Injection (PostgreSQL)"
+              enabled: true
+            - id: 40024
+              name: "SQL Injection (SQLite)"
+              enabled: true
+            - id: 40026
+              name: "Cross Site Request Forgery"
+              enabled: true
+            - id: 40028
+              name: "ELMAH Information Leak"
+              enabled: true
+            - id: 40032
+              name: ".htaccess Information Leak"
+              enabled: true
+            - id: 40034
+              name: ".env Information Leak"
+              enabled: true
+
+        # Passive Scan Rules
+        passiveScan:
+          enabled: true
+          rules:
+            - id: 10010
+              name: "Cookie No HttpOnly Flag"
+              enabled: true
+            - id: 10011
+              name: "Cookie Without SameSite Attribute"
+              enabled: true
+            - id: 10015
+              name: "Re-examine Cache Control Directives"
+              enabled: true
+            - id: 10017
+              name: "Cross-Domain JavaScript Source Inclusion"
+              enabled: true
+            - id: 10020
+              name: "X-Frame-Options Header"
+              enabled: true
+            - id: 10021
+              name: "X-Content-Type-Options Header"
+              enabled: true
+            - id: 10023
+              name: "Information Disclosure - Debug Messages"
+              enabled: true
+            - id: 10024
+              name: "Information Disclosure - Sensitive Information in URL"
+              enabled: true
+            - id: 10025
+              name: "Information Disclosure - Sensitive Information in HTTP Referrer Header"
+              enabled: true
+            - id: 10027
+              name: "Information Disclosure - Suspicious Comments"
+              enabled: true
+            - id: 10035
+              name: "Strict-Transport-Security Header"
+              enabled: true
+            - id: 10036
+              name: "Server Leaks Version Information"
+              enabled: true
+            - id: 10038
+              name: "Content Security Policy Header"
+              enabled: true
+            - id: 10039
+              name: "X-Backend-Server Header Information Leak"
+              enabled: true
+            - id: 10040
+              name: "Secure Pages Include Mixed Content"
+              enabled: true
+            - id: 10054
+              name: "Cookie Without SameSite Attribute"
+              enabled: true
+            - id: 10055
+              name: "CSP"
+              enabled: true
+            - id: 10057
+              name: "Authentication Request Found"
+              enabled: true
+
+  # Spider configuration
+  spider:
+    maxDepth: 5
+    maxChildren: 0
+    scanLogout: false
+   recurse: true
+    subtreeOnly: false
+
+  # Active scan configuration
+  activeScan:
+    maxRuleDurationInMins: 0
+    maxScanDurationInMins: 0
+    maxThreads: 2
+    hostPerScan: 2
+    maxAlertsPerRule: 0
+
+  # Report configuration
+  reports:
+    - name: "OWASP ZAP Security Report"
+      format: "traditional-html"
+      template: "traditional"
+      destination: "file"
+      file: "security/zap-report.html"

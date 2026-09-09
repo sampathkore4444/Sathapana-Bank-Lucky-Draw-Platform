@@ -1,0 +1,31 @@
+{
+  "newCampaign": {
+    "name": "E2E Test Campaign",
+    "description": "Campaign created during E2E testing",
+    "startDate": "2025-01-01",
+    "endDate": "2025-12-31",
+    "drawDate": "2025-12-31",
+    "campaignType": "TRANSACTION_BASED",
+    "minTransactionAmount": 100,
+    "entriesPerTransaction": 1,
+    "maxEntriesPerCustomer": 50,
+    "totalBudget": 100000
+  },
+  "existingCampaign": {
+    "id": "campaign-1",
+    "name": "Smart Savings Lucky Draw",
+    "status": "ACTIVE"
+  },
+  "draftCampaign": {
+    "name": "Draft Campaign",
+    "description": "This is a draft",
+    "startDate": "2025-06-01",
+    "endDate": "2025-12-31",
+    "drawDate": "2025-12-31",
+    "campaignType": "DEPOSIT_BASED",
+    "minDepositAmount": 500,
+    "entriesPerDeposit": 2,
+    "maxEntriesPerCustomer": 100,
+    "totalBudget": 200000
+  }
+}
