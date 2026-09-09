@@ -8,6 +8,10 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Semantic colors
+        border: 'hsl(var(--border))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
         // Sathapana Bank brand colors
         primary: {
           50: '#f0f9ff',
@@ -35,22 +39,33 @@ module.exports = {
         },
         success: {
           50: '#f0fdf4',
+          100: '#dcfce7',
           500: '#22c55e',
           600: '#16a34a',
+          800: '#166534',
         },
         warning: {
           50: '#fffbeb',
+          100: '#fef3c7',
           500: '#f59e0b',
           600: '#d97706',
+          800: '#92400e',
         },
         danger: {
           50: '#fef2f2',
+          100: '#fee2e2',
           500: '#ef4444',
           600: '#dc2626',
+          800: '#991b1b',
         },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
       },
     },
   },
