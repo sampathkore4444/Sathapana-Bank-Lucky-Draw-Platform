@@ -16,7 +16,7 @@ interface DrawInput {
   allowMultipleWins: boolean;
 }
 
-interface DrawOutput {
+export interface DrawOutput {
   drawId: string;
   seed: string;
   auditHash: string;
