@@ -32,6 +32,9 @@ import webhookRoutes from './routes/webhook.routes';
 // Create Express app
 const app = express();
 
+// Trust proxy headers when the app is served behind a reverse proxy / LB
+app.set('trust proxy', config.trustProxy);
+
 // ==================== SECURITY MIDDLEWARE ====================
 
 // Security headers with CSP
@@ -50,12 +53,21 @@ app.use(
   })
 );
 
-// CORS - Configure for production
+// CORS - explicit origin allow-list (never '*' in combination with credentials)
+const allowedOrigins = [
+  ...config.corsOrigin.split(',').map((o) => o.trim()).filter(Boolean),
+  'http://localhost:3000',
+  'https://sathapana-luckydraw.com',
+];
 app.use(
   cors({
-    origin: process.env.NODE_ENV === 'production'
-      ? [config.corsOrigin, 'https://sathapana-luckydraw.com']
-      : '*',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Origin not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -74,8 +86,10 @@ app.use(compression());
 app.use(morgan(config.nodeEnv === 'production' ? 'combined' : 'dev', { stream: morganStream }));
 app.use(requestLogger);
 
-// Body parsing with size limits
-app.use(express.json({ limit: '1mb' }));
+// Body parsing with size limits.
+// The raw body buffer is captured so webhooks can verify an HMAC signature
+// over the exact bytes the caller signed.
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ==================== INPUT SANITIZATION ====================
@@ -119,7 +133,8 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// Stricter rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints.
+// Keyed by IP + account so a distributed brute force cannot lock a single NATed IP.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // 20 attempts per window
@@ -129,6 +144,26 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    const account = (req.body && (req.body.email || req.body.customerId)) || 'unknown';
+    return `${account}:${req.ip}`;
+  },
+});
+
+// Customer login rate limiting (brute force protection for customerId+verification)
+const customerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: {
+    success: false,
+    error: 'Too many login attempts, please try again later',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const customerId = (req.body && req.body.customerId) || 'unknown';
+    return `customer-login:${customerId}:${req.ip}`;
+  },
 });
 
 // Draw execution rate limiting (very strict)
@@ -178,6 +213,7 @@ app.get('/ready', async (req, res) => {
 // Apply stricter rate limiting to specific routes
 app.use(`${config.apiPrefix}/auth`, authLimiter, authRoutes);
 app.use(`${config.apiPrefix}/draws`, drawLimiter, drawRoutes);
+app.use(`${config.apiPrefix}/customer/login`, customerLoginLimiter);
 
 // Other routes with standard rate limiting
 app.use(`${config.apiPrefix}/campaigns`, campaignRoutes);

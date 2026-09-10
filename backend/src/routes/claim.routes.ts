@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
@@ -24,7 +24,10 @@ const handleError = (res: Response, error: unknown, fallback: string) => {
   }
 };
 
-const getCustomerId = (req: Request): string | undefined => {
+const getCustomerId = (req: AuthRequest): string | undefined => {
+  if (req.user?.role === 'CUSTOMER') {
+    return req.user.customerId;
+  }
   const header = req.headers['x-customer-id'];
   if (header) return String(header);
   const query = req.query.customerId;
@@ -36,7 +39,7 @@ const getCustomerId = (req: Request): string | undefined => {
 router.post(
   '/',
   authenticate,
-  authorize('SUPER_ADMIN', 'PRIZE_COORDINATOR', 'COMPLIANCE_OFFICER', 'READ_ONLY'),
+  authorize('SUPER_ADMIN', 'PRIZE_COORDINATOR', 'COMPLIANCE_OFFICER', 'READ_ONLY', 'CUSTOMER'),
   validate(createClaimSchema),
   async (req: AuthRequest, res: Response) => {
     try {

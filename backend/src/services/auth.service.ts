@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import prisma from '../config/database';
 import { generateToken } from '../middleware/auth';
 import { AppError } from '../utils/appError';
-import { config } from '../config';
+import { hashToken } from '../utils/security';
 
 interface RegisterInput {
   email: string;
@@ -50,6 +50,14 @@ const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function generateRefreshToken(): string {
   return crypto.randomBytes(48).toString('hex');
+}
+
+/**
+ * Only the SHA-256 digest of a refresh token is ever persisted, so a database
+ * leak does not expose live tokens.
+ */
+export function hashRefreshToken(token: string): string {
+  return hashToken(token);
 }
 
 export class AuthService {
@@ -138,7 +146,7 @@ export class AuthService {
     await prisma.refreshToken.create({
       data: {
         userId,
-        token,
+        token: hashRefreshToken(token),
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
       },
     });
@@ -148,7 +156,7 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     const stored = await prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: hashRefreshToken(refreshToken) },
       include: { user: true },
     });
 
@@ -175,12 +183,12 @@ export class AuthService {
     await prisma.$transaction([
       prisma.refreshToken.update({
         where: { id: stored.id },
-        data: { revokedAt: new Date(), replacedByToken: newRefreshToken },
+        data: { revokedAt: new Date(), replacedByToken: hashRefreshToken(newRefreshToken) },
       }),
       prisma.refreshToken.create({
         data: {
           userId: stored.user.id,
-          token: newRefreshToken,
+          token: hashRefreshToken(newRefreshToken),
           expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
         },
       }),
@@ -201,7 +209,7 @@ export class AuthService {
 
   async logout(refreshToken: string, userId: string): Promise<void> {
     await prisma.refreshToken.updateMany({
-      where: { token: refreshToken, userId },
+      where: { token: hashRefreshToken(refreshToken), userId },
       data: { revokedAt: new Date() },
     });
   }

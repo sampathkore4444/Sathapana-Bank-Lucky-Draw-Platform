@@ -31,7 +31,25 @@ describe('USSD Interface', () => {
   const post = (text: string, customerId?: string) =>
     request(app)
       .post('/ussd')
+      .set('X-Gateway-Secret', 'change-me')
       .send({ sessionId: 'session-1', phoneNumber: '+85512345678', text, customerId });
+
+  it('should reject requests without the gateway secret', async () => {
+    const response = await request(app)
+      .post('/ussd')
+      .send({ sessionId: 'session-1', phoneNumber: '+85512345678', text: '' });
+
+    expect(response.status).toBe(401);
+  });
+
+  it('should reject requests with an invalid gateway secret', async () => {
+    const response = await request(app)
+      .post('/ussd')
+      .set('X-Gateway-Secret', 'wrong-secret')
+      .send({ sessionId: 'session-1', phoneNumber: '+85512345678', text: '' });
+
+    expect(response.status).toBe(401);
+  });
 
   it('should show the main menu on first request', async () => {
     const response = await post('');

@@ -3,6 +3,8 @@ import { AppError } from '../utils/appError';
 import { entryService } from './entry.service';
 import { winnerService } from './winner.service';
 import notificationService from './notification';
+import { coreBankingService } from './coreBanking.service';
+import { generateCustomerToken } from '../middleware/auth';
 
 interface CustomerQuery {
   page?: number;
@@ -12,6 +14,26 @@ interface CustomerQuery {
 }
 
 export class CustomerService {
+  /**
+   * Customer authentication against the core banking system.
+   * Issues a short-lived JWT scoped to a single customer.
+   */
+  async login(customerId: string) {
+    const customer = await coreBankingService.verifyCustomer(customerId);
+
+    if (!customer || customer.isActive === false) {
+      throw new AppError('Invalid customer credentials', 401);
+    }
+
+    const token = generateCustomerToken(customerId);
+
+    return {
+      token,
+      customerId,
+      name: customer.name,
+    };
+  }
+
   /**
    * Customer dashboard: running campaigns, total entries, wins and unread notifications.
    */

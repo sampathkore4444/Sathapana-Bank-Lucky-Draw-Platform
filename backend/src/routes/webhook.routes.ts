@@ -1,27 +1,45 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
 import { ApiResponseHelper } from '../utils/apiResponse';
+import { verifyHmacSignature, timingSafeEqualStr } from '../utils/security';
 import { coreBankingService } from '../services/coreBanking.service';
 
 const router = Router();
 
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
 /**
- * Verify the webhook signature header. In production this should use a proper
- * HMAC signature verification against the shared secret.
+ * Verify the webhook caller using a constant-time HMAC-SHA256 signature header
+ * ("sha256=<hex>") computed over the exact raw request body. The legacy
+ * X-Webhook-Secret header is still accepted with a constant-time compare for
+ * backwards compatibility, but callers are expected to migrate to signatures.
  */
-function verifyWebhookSecret(req: Request): boolean {
+function verifyWebhookSignature(req: RawBodyRequest): boolean {
+  const signature = req.headers['x-webhook-signature'];
+  const rawBody = req.rawBody?.toString('utf8') ?? '';
+
+  if (typeof signature === 'string' && verifyHmacSignature(signature, rawBody, config.coreBankingWebhookSecret)) {
+    return true;
+  }
+
   const secret = req.headers['x-webhook-secret'];
-  return !!secret && secret === config.coreBankingWebhookSecret;
+  if (typeof secret === 'string' && timingSafeEqualStr(secret, config.coreBankingWebhookSecret)) {
+    return true;
+  }
+
+  return false;
 }
 
 function handleError(res: Response, error: unknown, fallback: string) {
   console.error('Webhook error:', error);
-  ApiResponseHelper.error(res, (error as Error).message || fallback, 500);
+  ApiResponseHelper.error(res, fallback, 500);
 }
 
 // POST /webhooks/core-banking/transactions
-router.post('/core-banking/transactions', async (req: Request, res: Response) => {
-  if (!verifyWebhookSecret(req)) {
+router.post('/core-banking/transactions', async (req: RawBodyRequest, res: Response) => {
+  if (!verifyWebhookSignature(req)) {
     ApiResponseHelper.unauthorized(res, 'Invalid webhook signature');
     return;
   }
@@ -44,8 +62,8 @@ router.post('/core-banking/transactions', async (req: Request, res: Response) =>
 });
 
 // POST /webhooks/core-banking/account-opened
-router.post('/core-banking/account-opened', async (req: Request, res: Response) => {
-  if (!verifyWebhookSecret(req)) {
+router.post('/core-banking/account-opened', async (req: RawBodyRequest, res: Response) => {
+  if (!verifyWebhookSignature(req)) {
     ApiResponseHelper.unauthorized(res, 'Invalid webhook signature');
     return;
   }

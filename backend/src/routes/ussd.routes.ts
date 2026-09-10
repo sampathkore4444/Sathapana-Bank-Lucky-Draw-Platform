@@ -1,11 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { ApiResponseHelper } from '../utils/apiResponse';
+import { timingSafeEqualStr } from '../utils/security';
+import { config } from '../config';
 import { ussdService } from '../services/ussd.service';
 
 const router = Router();
 
 // POST /ussd - Standard USSD callback from the telecom carrier
 router.post('/', async (req: Request, res: Response) => {
+  const gatewaySecret = req.headers['x-gateway-secret'];
+  if (typeof gatewaySecret !== 'string' || !timingSafeEqualStr(gatewaySecret, config.ussdGatewaySecret)) {
+    ApiResponseHelper.unauthorized(res, 'Invalid gateway credentials');
+    return;
+  }
+
   try {
     const { sessionId, phoneNumber, text, customerId } = req.body;
 

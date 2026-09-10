@@ -150,6 +150,32 @@ describe('Prize Claims & Documents', () => {
       expect(response.status).toBe(201);
       expect(response.body.success).toBe(true);
     });
+
+    it('should reject a document with an unsupported MIME type', async () => {
+      (prisma.prizeClaim.findUnique as jest.Mock).mockResolvedValue({
+        id: CLAIM_ID,
+        winnerId: WINNER_ID,
+      });
+
+      const response = await request(app)
+        .post(`/claims/${CLAIM_ID}/documents`)
+        .send({ type: 'ID_PROOF', filePath: '/uploads/evil.html', mimeType: 'text/html', size: 100 });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject a document with a path traversal file path', async () => {
+      (prisma.prizeClaim.findUnique as jest.Mock).mockResolvedValue({
+        id: CLAIM_ID,
+        winnerId: WINNER_ID,
+      });
+
+      const response = await request(app)
+        .post(`/claims/${CLAIM_ID}/documents`)
+        .send({ type: 'ID_PROOF', filePath: '..%2F..%2Fetc%2Fpasswd', mimeType: 'application/pdf', size: 100 });
+
+      expect(response.status).toBe(400);
+    });
   });
 
   describe('PUT /claims/:id/review', () => {

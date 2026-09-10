@@ -15,6 +15,27 @@ interface DocumentInput {
   notes?: string;
 }
 
+const ALLOWED_DOCUMENT_TYPES = [
+  'ID_PROOF',
+  'CLAIM_FORM',
+  'TAX_FORM',
+  'CONSENT',
+  'PROOF_OF_ADDRESS',
+  'OTHER',
+] as const;
+
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/heic',
+  'image/webp',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+] as const;
+
+const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export class ClaimService {
   /**
    * Winner (or a bank coordinator on their behalf) opens a prize claim.
@@ -125,6 +146,8 @@ export class ClaimService {
    * Attach a document to a claim.
    */
   async addDocument(claimId: string, data: DocumentInput) {
+    assertSafeDocument(data);
+
     const claim = await prisma.prizeClaim.findUnique({ where: { id: claimId } });
 
     if (!claim) {
@@ -284,3 +307,21 @@ export class ClaimService {
 }
 
 export const claimService = new ClaimService();
+
+const ALLOWED_DOCUMENT_TYPE_SET = new Set<string>(ALLOWED_DOCUMENT_TYPES);
+const ALLOWED_MIME_TYPE_SET = new Set<string>(ALLOWED_MIME_TYPES);
+
+function assertSafeDocument(data: DocumentInput): void {
+  if (!ALLOWED_DOCUMENT_TYPE_SET.has(data.type)) {
+    throw new AppError('Invalid document type', 400);
+  }
+  if (!ALLOWED_MIME_TYPE_SET.has(data.mimeType)) {
+    throw new AppError('Unsupported document MIME type', 400);
+  }
+  if (typeof data.size !== 'number' || data.size < 0 || data.size > MAX_DOCUMENT_SIZE_BYTES) {
+    throw new AppError('Document size must be between 0 and 10 MB', 400);
+  }
+  if (!data.filePath || data.filePath.includes('..') || data.filePath.includes('\\') || data.filePath.includes('\0')) {
+    throw new AppError('Invalid document file path', 400);
+  }
+}

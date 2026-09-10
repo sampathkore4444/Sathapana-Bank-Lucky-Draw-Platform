@@ -2,6 +2,7 @@ import axios from 'axios';
 import prisma from '../config/database';
 import { config } from '../config';
 import { messageQueue } from './messageQueue';
+import { isPlaceholderCredential } from '../utils/security';
 
 // ==================== Types ====================
 
@@ -56,7 +57,7 @@ export class CoreBankingService {
   }
 
   private isMock(): boolean {
-    return !config.coreBankingApiUrl || !config.coreBankingApiKey;
+    return isPlaceholderCredential(config.coreBankingApiUrl) || isPlaceholderCredential(config.coreBankingApiKey);
   }
 
   /**

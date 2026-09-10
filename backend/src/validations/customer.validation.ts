@@ -1,5 +1,19 @@
 import { z } from 'zod';
 
+export const customerLoginSchema = z.object({
+  body: z.object({
+    customerId: z
+      .string()
+      .min(1, 'Customer ID required')
+      .max(50, 'Customer ID too long'),
+    phone: z
+      .string()
+      .min(1, 'Phone number required')
+      .max(30, 'Phone number too long')
+      .optional(),
+  }),
+});
+
 export const customerPathIdSchema = z.object({
   params: z.object({
     customerId: z

@@ -23,10 +23,12 @@ export interface JwtPayload {
   userId: string;
   email: string;
   role: string;
+  customerId?: string;
 }
 
 export interface AuthRequest extends Request {
   user?: JwtPayload;
+  customerId?: string;
 }
 
 // ==================== Campaign Types ====================

@@ -45,6 +45,7 @@ jest.mock('../src/middleware/auth', () => ({
 
 import prisma from '../src/config/database';
 import authRouter from '../src/routes/auth.routes';
+import { hashRefreshToken } from '../src/services/auth.service';
 
 const app = express();
 app.use(express.json());
@@ -133,7 +134,7 @@ describe('Refresh Token Flow', () => {
       expect(response.body.success).toBe(true);
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { token: 'token-to-revoke', userId: 'user-1' },
+          where: { token: hashRefreshToken('token-to-revoke'), userId: 'user-1' },
         })
       );
     });

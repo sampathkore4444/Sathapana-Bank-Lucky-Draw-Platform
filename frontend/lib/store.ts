@@ -43,6 +43,8 @@ const clearSession = (set: (partial: Partial<AuthState>) => void) => {
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
+  localStorage.removeItem('customerToken');
+  localStorage.removeItem('customerId');
   set({ user: null, token: null, refreshToken: null });
 };
 

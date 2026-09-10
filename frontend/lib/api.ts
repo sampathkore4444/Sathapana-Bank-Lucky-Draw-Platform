@@ -12,20 +12,35 @@ const api = axios.create({
 
 interface RetriableRequest extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  _customerAuthed?: boolean;
 }
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token.
+// Customer-scoped endpoints use the short-lived customer token when present;
+// staff endpoints use the staff token. The X-Customer-Id header is never sent
+// automatically - a customer's identity comes from their signed token only.
 api.interceptors.request.use(
   (config) => {
+    const url = config.url || '';
+    const isCustomerRoute =
+      url.startsWith('/customer') ||
+      url.startsWith('/customer/') ||
+      url.startsWith('/claims');
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    const customerToken = typeof window !== 'undefined' ? localStorage.getItem('customerToken') : null;
+
+    let bearer: string | null = null;
+    if (isCustomerRoute && customerToken) {
+      bearer = customerToken;
+    } else if (token) {
+      bearer = token;
     }
 
-    if (typeof window !== 'undefined') {
-      const customerId = localStorage.getItem('customerId');
-      if (customerId) {
-        config.headers['X-Customer-Id'] = customerId;
+    if (bearer) {
+      config.headers.Authorization = `Bearer ${bearer}`;
+      if (bearer === customerToken) {
+        (config as RetriableRequest)._customerAuthed = true;
       }
     }
 
@@ -61,6 +76,22 @@ const storeSession = (data: { token: string; refreshToken: string; user: unknown
   localStorage.setItem('user', JSON.stringify(data.user));
 };
 
+const clearSession = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+  localStorage.removeItem('customerToken');
+  localStorage.removeItem('customerId');
+};
+
+export const storeCustomerSession = (customerId: string, customerToken: string) => {
+  localStorage.setItem('customerToken', customerToken);
+  localStorage.setItem('customerId', customerId);
+};
+
+export const getCustomerToken = (): string | null =>
+  typeof window !== 'undefined' ? localStorage.getItem('customerToken') : null;
+
 const refreshAccessToken = async (): Promise<string> => {
   if (typeof window === 'undefined') throw new Error('Not available on server');
   const refreshToken = localStorage.getItem('refreshToken');
@@ -89,6 +120,12 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
+      // Customer tokens are short-lived and must be re-issued via customer
+      // login rather than the staff refresh flow.
+      if (original._customerAuthed) {
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -108,9 +145,7 @@ api.interceptors.response.use(
         return api(original);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
+        clearSession();
         window.location.href = '/login';
         return Promise.reject(refreshError);
       } finally {
@@ -291,6 +326,14 @@ export const adminApi = {
 // ==================== Customer API ====================
 
 export const customerApi = {
+  login: async (customerId: string) => {
+    const response = await api.post('/customer/login', { customerId });
+    storeCustomerSession(customerId, response.data.data.token);
+    return response;
+  },
+
+  me: () => api.get('/customer/me'),
+
   dashboard: () => api.get('/customer/dashboard'),
 
   campaigns: (params?: { page?: number; limit?: number; type?: string; status?: string }) =>

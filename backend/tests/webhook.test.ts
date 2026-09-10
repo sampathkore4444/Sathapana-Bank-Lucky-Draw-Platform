@@ -24,6 +24,7 @@ jest.mock('../src/services/messageQueue', () => ({
 
 import prisma from '../src/config/database';
 import webhookRouter from '../src/routes/webhook.routes';
+import { hmacSignature } from '../src/utils/security';
 
 const campaignFindMany = prisma.campaign.findMany as jest.Mock;
 const customerEntryFindUnique = prisma.customerEntry.findUnique as jest.Mock;
@@ -31,10 +32,14 @@ const customerEntryAggregate = prisma.customerEntry.aggregate as jest.Mock;
 const customerEntryCreate = prisma.customerEntry.create as jest.Mock;
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ verify: (req: any, _res: any, buf: Buffer) => { req.rawBody = buf; } }));
 app.use('/webhooks', webhookRouter);
 
 const SECRET = 'change-me';
+
+const signed = (payload: Record<string, unknown>) => ({
+  'X-Webhook-Signature': `sha256=${hmacSignature(JSON.stringify(payload), SECRET)}`,
+});
 
 describe('Core Banking Webhooks', () => {
   beforeEach(() => {
@@ -42,7 +47,7 @@ describe('Core Banking Webhooks', () => {
   });
 
   describe('POST /webhooks/core-banking/transactions', () => {
-    it('should credit entries for a qualifying transaction', async () => {
+    it('should credit entries for a qualifying transaction (HMAC signature)', async () => {
       campaignFindMany.mockResolvedValue([
         {
           id: 'c1',
@@ -61,17 +66,18 @@ describe('Core Banking Webhooks', () => {
         cumulativeEntries: 1,
       });
 
+      const payload = {
+        customerId: 'CUST-000001',
+        accountId: 'ACC-001',
+        transactionId: 'TXN-123',
+        transactionType: 'DEPOSIT',
+        amount: 300,
+        currency: 'USD',
+      };
       const response = await request(app)
         .post('/webhooks/core-banking/transactions')
-        .set('X-Webhook-Secret', SECRET)
-        .send({
-          customerId: 'CUST-000001',
-          accountId: 'ACC-001',
-          transactionId: 'TXN-123',
-          transactionType: 'DEPOSIT',
-          amount: 300,
-          currency: 'USD',
-        });
+        .set(signed(payload))
+        .send(payload);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -79,6 +85,25 @@ describe('Core Banking Webhooks', () => {
       // 300 USD at 150/increment and 1 entry per increment = 2 entries
       expect(response.body.data.processed[0].entriesEarned).toBe(2);
       expect(customerEntryCreate).toHaveBeenCalled();
+    });
+
+    it('should accept the legacy X-Webhook-Secret header', async () => {
+      campaignFindMany.mockResolvedValue([]);
+      customerEntryFindUnique.mockResolvedValue(null);
+
+      const payload = {
+        customerId: 'CUST-000001',
+        accountId: 'ACC-001',
+        transactionId: 'TXN-123',
+        transactionType: 'DEPOSIT',
+        amount: 10,
+      };
+      const response = await request(app)
+        .post('/webhooks/core-banking/transactions')
+        .set('X-Webhook-Secret', SECRET)
+        .send(payload);
+
+      expect(response.status).toBe(200);
     });
 
     it('should deduplicate the same transaction', async () => {
@@ -97,17 +122,18 @@ describe('Core Banking Webhooks', () => {
         cumulativeEntries: 5,
       });
 
+      const payload = {
+        customerId: 'CUST-000001',
+        accountId: 'ACC-001',
+        transactionId: 'TXN-123',
+        transactionType: 'DEPOSIT',
+        amount: 300,
+        currency: 'USD',
+      };
       const response = await request(app)
         .post('/webhooks/core-banking/transactions')
-        .set('X-Webhook-Secret', SECRET)
-        .send({
-          customerId: 'CUST-000001',
-          accountId: 'ACC-001',
-          transactionId: 'TXN-123',
-          transactionType: 'DEPOSIT',
-          amount: 300,
-          currency: 'USD',
-        });
+        .set(signed(payload))
+        .send(payload);
 
       expect(response.status).toBe(200);
       expect(response.body.data.processed[0].created).toBe(false);
@@ -115,10 +141,24 @@ describe('Core Banking Webhooks', () => {
       expect(customerEntryCreate).not.toHaveBeenCalled();
     });
 
-    it('should reject requests with an invalid webhook secret', async () => {
+    it('should reject requests with an invalid signature', async () => {
+      const payload = {
+        customerId: 'CUST-000001',
+        transactionId: 'TXN-1',
+        transactionType: 'DEPOSIT',
+        amount: 10,
+      };
       const response = await request(app)
         .post('/webhooks/core-banking/transactions')
-        .set('X-Webhook-Secret', 'wrong-secret')
+        .set('X-Webhook-Signature', 'sha256=0000000000000000000000000000000000000000000000000000000000000000')
+        .send(payload);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should reject requests without any credentials', async () => {
+      const response = await request(app)
+        .post('/webhooks/core-banking/transactions')
         .send({
           customerId: 'CUST-000001',
           transactionId: 'TXN-1',
@@ -130,10 +170,11 @@ describe('Core Banking Webhooks', () => {
     });
 
     it('should reject invalid payloads', async () => {
+      const payload = { customerId: 'CUST-000001' };
       const response = await request(app)
         .post('/webhooks/core-banking/transactions')
-        .set('X-Webhook-Secret', SECRET)
-        .send({ customerId: 'CUST-000001' });
+        .set(signed(payload))
+        .send(payload);
 
       expect(response.status).toBe(400);
     });
@@ -157,14 +198,15 @@ describe('Core Banking Webhooks', () => {
         cumulativeEntries: 5,
       });
 
+      const payload = {
+        customerId: 'CUST-000002',
+        accountId: 'ACC-002',
+        amount: 150,
+      };
       const response = await request(app)
         .post('/webhooks/core-banking/account-opened')
-        .set('X-Webhook-Secret', SECRET)
-        .send({
-          customerId: 'CUST-000002',
-          accountId: 'ACC-002',
-          amount: 150,
-        });
+        .set(signed(payload))
+        .send(payload);
 
       expect(response.status).toBe(200);
       expect(response.body.data.processed[0].entriesEarned).toBe(5);
