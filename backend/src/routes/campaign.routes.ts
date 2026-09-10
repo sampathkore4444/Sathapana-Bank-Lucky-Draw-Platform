@@ -1,7 +1,13 @@
 import { Router, Response } from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { createCampaignSchema, updateCampaignSchema, campaignIdSchema } from '../validations';
+import {
+  createCampaignSchema,
+  updateCampaignSchema,
+  campaignIdSchema,
+  approvalDecisionSchema,
+  campaignApprovalQuerySchema,
+} from '../validations';
 import { AuthRequest, CampaignQuery } from '../types';
 import { ApiResponseHelper } from '../utils/apiResponse';
 import { AppError } from '../utils/appError';
@@ -27,6 +33,23 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     handleError(res, error, 'Failed to fetch campaigns');
   }
 });
+
+// GET /campaigns/approvals/list - List campaigns in the approval workflow
+router.get(
+  '/approvals/list',
+  authenticate,
+  authorize('SUPER_ADMIN', 'CAMPAIGN_MANAGER', 'MARKETING_MANAGER', 'COMPLIANCE_OFFICER'),
+  validate(campaignApprovalQuerySchema),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const query = req.query as CampaignQuery;
+      const { data, total, page, limit } = await campaignService.listForApproval(query);
+      ApiResponseHelper.paginated(res, data, total, page, limit);
+    } catch (error) {
+      handleError(res, error, 'Failed to fetch approval queue');
+    }
+  }
+);
 
 // GET /campaigns/:id - Get campaign by ID
 router.get('/:id', authenticate, validate(campaignIdSchema), async (req: AuthRequest, res: Response) => {
@@ -143,5 +166,79 @@ router.get('/:id/stats', authenticate, validate(campaignIdSchema), async (req: A
     handleError(res, error, 'Failed to fetch campaign stats');
   }
 });
+
+// POST /campaigns/:id/duplicate - Duplicate an existing campaign
+router.post(
+  '/:id/duplicate',
+  authenticate,
+  authorize('SUPER_ADMIN', 'CAMPAIGN_MANAGER'),
+  validate(campaignIdSchema),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const campaign = await campaignService.duplicate(req.params.id, req.user!.userId);
+      ApiResponseHelper.created(res, campaign, 'Campaign duplicated successfully');
+    } catch (error) {
+      handleError(res, error, 'Failed to duplicate campaign');
+    }
+  }
+);
+
+// POST /campaigns/:id/submit - Submit for multi-level approval
+router.post(
+  '/:id/submit',
+  authenticate,
+  authorize('SUPER_ADMIN', 'CAMPAIGN_MANAGER'),
+  validate(campaignIdSchema),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const updated = await campaignService.submitForApproval(req.params.id, req.user!.userId);
+      ApiResponseHelper.success(res, updated, 'Campaign submitted for approval');
+    } catch (error) {
+      handleError(res, error, 'Failed to submit campaign for approval');
+    }
+  }
+);
+
+// POST /campaigns/:id/approval/:level/approve - Approve at a given level
+router.post(
+  '/:id/approval/:level/approve',
+  authenticate,
+  validate(approvalDecisionSchema),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const updated = await campaignService.approveCampaign(
+        req.params.id,
+        Number(req.params.level),
+        req.user!.userId,
+        req.user!.role,
+        req.body.comment
+      );
+      ApiResponseHelper.success(res, updated, 'Approval level approved');
+    } catch (error) {
+      handleError(res, error, 'Failed to approve campaign');
+    }
+  }
+);
+
+// POST /campaigns/:id/approval/:level/reject - Reject at a given level
+router.post(
+  '/:id/approval/:level/reject',
+  authenticate,
+  validate(approvalDecisionSchema),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const updated = await campaignService.rejectCampaign(
+        req.params.id,
+        Number(req.params.level),
+        req.user!.userId,
+        req.user!.role,
+        req.body.comment
+      );
+      ApiResponseHelper.success(res, updated, 'Approval level rejected');
+    } catch (error) {
+      handleError(res, error, 'Failed to reject campaign');
+    }
+  }
+);
 
 export default router;

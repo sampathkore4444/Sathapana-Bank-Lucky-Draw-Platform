@@ -25,12 +25,16 @@ router.post(
   validate(executeDrawSchema),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { campaignId, numberOfWinners = 1, numberOfAlternates = 3 } = req.body;
+      const { campaignId, numberOfWinners = 1, numberOfAlternates = 3, drawType, customerId } = req.body;
       const result = await drawService.executeDraw(
-        { campaignId, numberOfWinners, numberOfAlternates },
+        { campaignId, numberOfWinners, numberOfAlternates, customerId },
         req.user!.userId
       );
-      ApiResponseHelper.created(res, result, 'Draw executed successfully');
+      ApiResponseHelper.created(
+        res,
+        result,
+        drawType === 'INSTANT' ? 'Instant draw executed successfully' : 'Draw executed successfully'
+      );
     } catch (error) {
       handleError(res, error, 'Failed to execute draw');
     }

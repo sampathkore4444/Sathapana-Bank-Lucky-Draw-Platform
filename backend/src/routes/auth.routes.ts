@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { registerSchema, loginSchema, updateProfileSchema } from '../validations';
+import { registerSchema, loginSchema, updateProfileSchema, refreshTokenSchema, logoutSchema } from '../validations';
 import { ApiResponseHelper } from '../utils/apiResponse';
 import { AuthRequest } from '../types';
 import { AppError } from '../utils/appError';
@@ -36,6 +36,28 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
     ApiResponseHelper.success(res, result, 'Login successful');
   } catch (error) {
     handleError(res, error, 'Login failed');
+  }
+});
+
+// POST /auth/refresh
+router.post('/refresh', validate(refreshTokenSchema), async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    const result = await authService.refresh(refreshToken);
+    ApiResponseHelper.success(res, result, 'Token refreshed');
+  } catch (error) {
+    handleError(res, error, 'Token refresh failed');
+  }
+});
+
+// POST /auth/logout
+router.post('/logout', authenticate, validate(logoutSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    await authService.logout(refreshToken, req.user!.userId);
+    ApiResponseHelper.success(res, null, 'Logged out successfully');
+  } catch (error) {
+    handleError(res, error, 'Logout failed');
   }
 });
 

@@ -7,6 +7,7 @@ interface ExecuteDrawInput {
   campaignId: string;
   numberOfWinners?: number;
   numberOfAlternates?: number;
+  customerId?: string;
 }
 
 interface DrawQuery {
@@ -16,7 +17,7 @@ interface DrawQuery {
 
 export class DrawService {
   async executeDraw(data: ExecuteDrawInput, userId: string) {
-    const { campaignId, numberOfWinners = 1, numberOfAlternates = 3 } = data;
+    const { campaignId, numberOfWinners = 1, numberOfAlternates = 3, customerId } = data;
 
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
@@ -26,12 +27,25 @@ export class DrawService {
       throw new AppError('Campaign not found', 404);
     }
 
+    const drawSettings = (campaign.drawSettings || {}) as any;
+    const drawType: string = drawSettings.drawType || 'RANDOM';
+
     const drawEngine = new DrawEngine();
+
+    let batchNumber: number | undefined;
+    if (drawType === 'SCHEDULED') {
+      const previousDraws = await prisma.drawResult.count({ where: { campaignId } });
+      batchNumber = previousDraws + 1;
+    }
+
     const result = await drawEngine.executeDraw({
       campaignId,
       numberOfWinners,
       numberOfAlternates,
-      allowMultipleWins: false,
+      allowMultipleWins: drawSettings.allowMultipleWins === true,
+      drawType: drawType as any,
+      customerId: drawType === 'INSTANT' ? customerId : undefined,
+      batchNumber,
     });
 
     await prisma.drawResult.update({

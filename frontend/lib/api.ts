@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
@@ -10,6 +10,10 @@ const api = axios.create({
   },
 });
 
+interface RetriableRequest extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -17,6 +21,14 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    if (typeof window !== 'undefined') {
+      const customerId = localStorage.getItem('customerId');
+      if (customerId) {
+        config.headers['X-Customer-Id'] = customerId;
+      }
+    }
+
     return config;
   },
   (error) => {
@@ -24,17 +36,88 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle errors
+// ==================== Refresh Token Rotation ====================
+
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}> = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
+  failedQueue.forEach((promise) => {
+    if (error) {
+      promise.reject(error);
+    } else if (token) {
+      promise.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+const storeSession = (data: { token: string; refreshToken: string; user: unknown }) => {
+  localStorage.setItem('token', data.token);
+  localStorage.setItem('refreshToken', data.refreshToken);
+  localStorage.setItem('user', JSON.stringify(data.user));
+};
+
+const refreshAccessToken = async (): Promise<string> => {
+  if (typeof window === 'undefined') throw new Error('Not available on server');
+  const refreshToken = localStorage.getItem('refreshToken');
+  if (!refreshToken) throw new Error('No refresh token available');
+
+  const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
+  storeSession(response.data.data);
+  return response.data.data.token;
+};
+
+// Response interceptor to handle 401 with token refresh
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
+  async (error: AxiosError) => {
+    const original = error.config as RetriableRequest | undefined;
+    const status = error.response?.status;
+    const url = original?.url || '';
+
+    const isAuthEndpoint =
+      url.includes('/auth/login') ||
+      url.includes('/auth/register') ||
+      url.includes('/auth/refresh');
+
+    if (status === 401 && original && !original._retry && !isAuthEndpoint) {
+      if (typeof window === 'undefined') {
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          original.headers.Authorization = `Bearer ${token}`;
+          return api(original);
+        });
+      }
+
+      original._retry = true;
+      isRefreshing = true;
+
+      try {
+        const token = await refreshAccessToken();
+        processQueue(null, token);
+        original.headers.Authorization = `Bearer ${token}`;
+        return api(original);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
         localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         window.location.href = '/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
+
     return Promise.reject(error);
   }
 );
@@ -44,7 +127,7 @@ api.interceptors.response.use(
 export const authApi = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
-  
+
   register: (data: {
     email: string;
     password: string;
@@ -52,11 +135,17 @@ export const authApi = {
     lastName: string;
     phone?: string;
   }) => api.post('/auth/register', data),
-  
+
   getProfile: () => api.get('/auth/profile'),
-  
+
   updateProfile: (data: { firstName?: string; lastName?: string; phone?: string }) =>
     api.put('/auth/profile', data),
+
+  refresh: (refreshToken: string) =>
+    api.post('/auth/refresh', { refreshToken }),
+
+  logout: (refreshToken: string) =>
+    api.post('/auth/logout', { refreshToken }),
 };
 
 // ==================== Campaign API ====================
@@ -80,6 +169,19 @@ export const campaignApi = {
   close: (id: string) => api.post(`/campaigns/${id}/close`),
   
   getStats: (id: string) => api.get(`/campaigns/${id}/stats`),
+
+  duplicate: (id: string) => api.post(`/campaigns/${id}/duplicate`),
+
+  submitForApproval: (id: string) => api.post(`/campaigns/${id}/submit`),
+
+  approveApprovalLevel: (id: string, level: number, comment?: string) =>
+    api.post(`/campaigns/${id}/approval/${level}/approve`, { comment }),
+
+  rejectApprovalLevel: (id: string, level: number, comment?: string) =>
+    api.post(`/campaigns/${id}/approval/${level}/reject`, { comment }),
+
+  listForApproval: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/campaigns/approvals/list', { params }),
 };
 
 // ==================== Entry API ====================
@@ -184,6 +286,61 @@ export const adminApi = {
   
   updateUserStatus: (id: string, isActive: boolean) =>
     api.put(`/admin/users/${id}/status`, { isActive }),
+};
+
+// ==================== Customer API ====================
+
+export const customerApi = {
+  dashboard: () => api.get('/customer/dashboard'),
+
+  campaigns: (params?: { page?: number; limit?: number; type?: string; status?: string }) =>
+    api.get('/customer/campaigns', { params }),
+
+  checkEligibility: (campaignId: string, customerId: string) =>
+    api.get(`/customer/campaigns/${campaignId}/eligibility/${customerId}`),
+
+  entries: (params?: { page?: number; limit?: number; campaignId?: string }) =>
+    api.get('/customer/entries', { params }),
+
+  wins: (params?: { page?: number; limit?: number }) =>
+    api.get('/customer/wins', { params }),
+
+  notifications: (params?: { page?: number; limit?: number }) =>
+    api.get('/customer/notifications', { params }),
+
+  markNotificationRead: (id: string) =>
+    api.put(`/customer/notifications/${id}/read`),
+};
+
+// ==================== Claim API ====================
+
+export const claimApi = {
+  create: (data: { winnerId: string }) => api.post('/claims', data),
+
+  list: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/claims', { params }),
+
+  getById: (id: string) => api.get(`/claims/${id}`),
+
+  addDocument: (
+    claimId: string,
+    data: { type: string; filePath: string; mimeType: string; size: number; notes?: string }
+  ) => api.post(`/claims/${claimId}/documents`, data),
+
+  review: (id: string, data: { status: 'APPROVED' | 'REJECTED'; decisionNote?: string }) =>
+    api.put(`/claims/${id}/review`, data),
+
+  fulfill: (id: string) => api.put(`/claims/${id}/fulfill`),
+
+  verifyDocument: (id: string, data: { status: 'VERIFIED' | 'REJECTED'; notes?: string }) =>
+    api.put(`/claims/documents/${id}/verify`, data),
+};
+
+// ==================== Public API ====================
+
+export const publicApi = {
+  campaignWinners: (campaignId: string, params?: { page?: number; limit?: number }) =>
+    api.get(`/public/campaigns/${campaignId}/winners`, { params }),
 };
 
 export default api;

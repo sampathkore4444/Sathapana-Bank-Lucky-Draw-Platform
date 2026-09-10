@@ -146,6 +146,7 @@ describe('Campaign API', () => {
       const mockCampaign = {
         id: 'campaign-1',
         status: 'SCHEDULED',
+        approvals: [],
       };
 
       (prisma.campaign.findUnique as jest.Mock).mockResolvedValue(mockCampaign);

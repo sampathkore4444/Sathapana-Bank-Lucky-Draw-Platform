@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import prisma from '../config/database';
 import { generateToken } from '../middleware/auth';
 import { AppError } from '../utils/appError';
+import { config } from '../config';
 
 interface RegisterInput {
   email: string;
@@ -43,7 +45,22 @@ const PROFILE_SELECT = {
   createdAt: true,
 } as const;
 
+// 30 days in milliseconds
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function generateRefreshToken(): string {
+  return crypto.randomBytes(48).toString('hex');
+}
+
 export class AuthService {
+  private buildAuthPayload(user: {
+    id: string;
+    email: string;
+    role: string;
+  }) {
+    return { userId: user.id, email: user.email, role: user.role };
+  }
+
   async register(data: RegisterInput) {
     const existingUser = await prisma.user.findUnique({ where: { email: data.email } });
     if (existingUser) {
@@ -64,11 +81,7 @@ export class AuthService {
       select: USER_SELECT,
     });
 
-    const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
+    const token = generateToken(this.buildAuthPayload(user));
 
     return { user, token };
   }
@@ -93,11 +106,18 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
+    return this.createSession(user);
+  }
+
+  private async createSession(user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+  }) {
+    const token = generateToken(this.buildAuthPayload(user));
+    const refreshToken = await this.createRefreshToken(user.id);
 
     return {
       user: {
@@ -108,7 +128,82 @@ export class AuthService {
         role: user.role,
       },
       token,
+      refreshToken,
     };
+  }
+
+  private async createRefreshToken(userId: string): Promise<string> {
+    const token = generateRefreshToken();
+
+    await prisma.refreshToken.create({
+      data: {
+        userId,
+        token,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      },
+    });
+
+    return token;
+  }
+
+  async refresh(refreshToken: string) {
+    const stored = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+      include: { user: true },
+    });
+
+    if (!stored) {
+      throw new AppError('Invalid refresh token', 401);
+    }
+
+    if (stored.revokedAt) {
+      throw new AppError('Refresh token has been revoked', 401);
+    }
+
+    if (stored.expiresAt < new Date()) {
+      throw new AppError('Refresh token expired', 401);
+    }
+
+    if (!stored.user.isActive) {
+      throw new AppError('Account is deactivated', 403);
+    }
+
+    // Rotate the token: revoke the old one and issue a new pair
+    const token = generateToken(this.buildAuthPayload(stored.user));
+    const newRefreshToken = generateRefreshToken();
+
+    await prisma.$transaction([
+      prisma.refreshToken.update({
+        where: { id: stored.id },
+        data: { revokedAt: new Date(), replacedByToken: newRefreshToken },
+      }),
+      prisma.refreshToken.create({
+        data: {
+          userId: stored.user.id,
+          token: newRefreshToken,
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+        },
+      }),
+    ]);
+
+    return {
+      user: {
+        id: stored.user.id,
+        email: stored.user.email,
+        firstName: stored.user.firstName,
+        lastName: stored.user.lastName,
+        role: stored.user.role,
+      },
+      token,
+      refreshToken: newRefreshToken,
+    };
+  }
+
+  async logout(refreshToken: string, userId: string): Promise<void> {
+    await prisma.refreshToken.updateMany({
+      where: { token: refreshToken, userId },
+      data: { revokedAt: new Date() },
+    });
   }
 
   async getProfile(userId: string) {

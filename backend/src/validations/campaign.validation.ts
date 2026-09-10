@@ -111,3 +111,48 @@ export const campaignIdSchema = z.object({
       .uuid('Invalid campaign ID format'),
   }),
 });
+
+export const approvalDecisionSchema = z.object({
+  params: z.object({
+    id: z
+      .string()
+      .uuid('Invalid campaign ID format'),
+    level: z
+      .string()
+      .transform((val) => parseInt(val, 10))
+      .pipe(z.number().int().min(1).max(3)),
+  }),
+  body: z.object({
+    comment: z
+      .string()
+      .max(2000, 'Comment too long')
+      .optional(),
+  }),
+});
+
+export const campaignApprovalQuerySchema = z.object({
+  query: z.object({
+    page: z
+      .string()
+      .optional()
+      .transform((val) => (val ? parseInt(val, 10) : 1))
+      .pipe(z.number().int().positive()),
+    limit: z
+      .string()
+      .optional()
+      .transform((val) => (val ? parseInt(val, 10) : 10))
+      .pipe(z.number().int().min(1).max(100)),
+    status: z
+      .enum([
+        'DRAFT',
+        'PENDING_APPROVAL',
+        'SCHEDULED',
+        'ACTIVE',
+        'DRAW_DAY',
+        'DRAWN',
+        'CLOSED',
+        'CANCELLED',
+      ])
+      .optional(),
+  }),
+});

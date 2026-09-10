@@ -27,10 +27,29 @@ model User {
   // Relations
   campaignsCreated  Campaign[]        @relation("CampaignCreator")
   campaignsApproved Campaign[]        @relation("CampaignApprover")
+  campaignApprovals CampaignApproval[]
+  refreshTokens     RefreshToken[]
   auditLogs         AuditLog[]
 
   @@index([email])
   @@index([role])
+}
+
+// ==================== REFRESH TOKEN ====================
+
+model RefreshToken {
+  id               String    @id @default(uuid())
+  userId           String
+  token            String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  replacedByToken  String?
+  createdAt        DateTime  @default(now())
+
+  user             User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([token])
 }
 
 enum UserRole {
@@ -69,9 +88,15 @@ model Campaign {
   approvedBy            String?
   approvedAt            DateTime?
 
+  // Approval / duplication workflow
+  sourceCampaignId      String?
+  submittedBy           String?
+  submittedAt           DateTime?
+
   // Relations
-  creator               User           @relation("CampaignCreator", fields: [createdBy], references: [id])
-  approver              User?          @relation("CampaignApprover", fields: [approvedBy], references: [id])
+  creator               User             @relation("CampaignCreator", fields: [createdBy], references: [id])
+  approver              User?            @relation("CampaignApprover", fields: [approvedBy], references: [id])
+  approvals             CampaignApproval[]
   entries               CustomerEntry[]
   prizes                Prize[]
   drawResults           DrawResult[]
@@ -80,6 +105,7 @@ model Campaign {
   @@index([status])
   @@index([type])
   @@index([startDate, endDate])
+  @@index([sourceCampaignId])
 }
 
 enum CampaignType {
@@ -93,12 +119,39 @@ enum CampaignType {
 
 enum CampaignStatus {
   DRAFT
+  PENDING_APPROVAL
   SCHEDULED
   ACTIVE
   DRAW_DAY
   DRAWN
   CLOSED
   CANCELLED
+}
+
+// ==================== CAMPAIGN APPROVAL ====================
+
+model CampaignApproval {
+  id          String         @id @default(uuid())
+  campaignId  String
+  level       Int
+  status      ApprovalStatus @default(PENDING)
+  approverId  String?
+  comment     String?
+  decidedAt   DateTime?
+  createdAt   DateTime       @default(now())
+
+  campaign    Campaign       @relation(fields: [campaignId], references: [id])
+  approver    User?          @relation(fields: [approverId], references: [id])
+
+  @@unique([campaignId, level])
+  @@index([status])
+  @@index([campaignId])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // ==================== CUSTOMER ENTRY ====================
@@ -184,6 +237,9 @@ model DrawResult {
   id                String    @id @default(uuid())
   campaignId        String
   drawDate          DateTime
+  drawType          String    @default("RANDOM")
+  batchNumber       Int       @default(1)
+  round             Int       @default(1)
   totalParticipants Int
   totalEntries      Int
   seed              String
@@ -225,10 +281,77 @@ model DrawWinner {
   // Relations
   drawResult      DrawResult   @relation(fields: [drawResultId], references: [id])
   prize           Prize        @relation(fields: [prizeId], references: [id])
+  claim           PrizeClaim?
+  documents       Document[]
 
   @@index([customerId])
   @@index([prizeId])
   @@index([status])
+}
+
+// ==================== PRIZE CLAIM ====================
+
+model PrizeClaim {
+  id           String       @id @default(uuid())
+  winnerId     String       @unique
+  status       ClaimStatus  @default(SUBMITTED)
+  claimedAt    DateTime?
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  decisionNote String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  winner       DrawWinner   @relation(fields: [winnerId], references: [id])
+  documents    Document[]
+
+  @@index([status])
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  FULFILLED
+}
+
+// ==================== DOCUMENT ====================
+
+model Document {
+  id          String         @id @default(uuid())
+  claimId     String?
+  winnerId    String
+  type        DocumentType
+  filePath    String
+  mimeType    String
+  size        Int
+  status      DocumentStatus @default(PENDING)
+  notes       String?
+  uploadedAt  DateTime       @default(now())
+  verifiedAt  DateTime?
+
+  claim       PrizeClaim?    @relation(fields: [claimId], references: [id])
+  winner      DrawWinner     @relation(fields: [winnerId], references: [id])
+
+  @@index([claimId])
+  @@index([winnerId])
+  @@index([status])
+}
+
+enum DocumentType {
+  ID_PROOF
+  CLAIM_FORM
+  TAX_FORM
+  CONSENT
+  PROOF_OF_ADDRESS
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
 }
 
 enum WinnerStatus {

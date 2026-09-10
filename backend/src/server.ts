@@ -11,6 +11,7 @@ import prisma from './config/database';
 import { logger, morganStream, requestLogger } from './config/logger';
 import { healthCheck } from './services/healthCheck';
 import { setupQueueHandlers } from './services/queueSetup';
+import { schedulerService } from './services/scheduler.service';
 import { sanitizeBody, sanitizeQuery, preventSQLInjection, preventPathTraversal } from './middleware/sanitization';
 import { auditAuth, auditSensitiveOps, detectSuspiciousActivity, blockSuspiciousIPs } from './middleware/securityAudit';
 
@@ -22,6 +23,11 @@ import drawRoutes from './routes/draw.routes';
 import prizeRoutes from './routes/prize.routes';
 import winnerRoutes from './routes/winner.routes';
 import adminRoutes from './routes/admin.routes';
+import customerRoutes from './routes/customer.routes';
+import claimRoutes from './routes/claim.routes';
+import publicRoutes from './routes/public.routes';
+import ussdRoutes from './routes/ussd.routes';
+import webhookRoutes from './routes/webhook.routes';
 
 // Create Express app
 const app = express();
@@ -179,6 +185,13 @@ app.use(`${config.apiPrefix}/entries`, entryRoutes);
 app.use(`${config.apiPrefix}/prizes`, prizeRoutes);
 app.use(`${config.apiPrefix}/winners`, winnerRoutes);
 app.use(`${config.apiPrefix}/admin`, adminRoutes);
+app.use(`${config.apiPrefix}/customer`, customerRoutes);
+app.use(`${config.apiPrefix}/claims`, claimRoutes);
+app.use(`${config.apiPrefix}/public`, publicRoutes);
+app.use(`${config.apiPrefix}/ussd`, ussdRoutes);
+
+// Core banking webhooks (external system callbacks)
+app.use('/webhooks', webhookRoutes);
 
 // ==================== ERROR HANDLING ====================
 
@@ -192,6 +205,9 @@ app.use(errorHandler);
 
 // Register message queue consumers before starting the server
 setupQueueHandlers();
+
+// Start the periodic scheduler (status transitions, reminders, winner expiry)
+schedulerService.start();
 
 const PORT = config.port;
 

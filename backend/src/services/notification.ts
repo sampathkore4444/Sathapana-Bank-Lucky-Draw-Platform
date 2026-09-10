@@ -66,6 +66,25 @@ export class NotificationService {
   }
 
   /**
+   * Send a welcome notification for a new campaign participant
+   */
+  async sendWelcome(
+    customerId: string,
+    campaignId: string,
+    campaignName: string
+  ): Promise<void> {
+    await this.send({
+      customerId,
+      campaignId,
+      type: 'WELCOME',
+      channel: 'PUSH',
+      subject: `Welcome to ${campaignName}!`,
+      message: `You are now a participant in ${campaignName}. Keep transacting to earn more entries!`,
+      metadata: { campaignName },
+    });
+  }
+
+  /**
    * Send entry confirmation
    */
   async sendEntryConfirmation(

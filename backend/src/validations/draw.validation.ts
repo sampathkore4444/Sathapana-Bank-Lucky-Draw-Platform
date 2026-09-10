@@ -19,6 +19,14 @@ export const executeDrawSchema = z.object({
       .max(50, 'Cannot exceed 50 alternates')
       .optional()
       .default(3),
+    drawType: z
+      .enum(['RANDOM', 'TIERED', 'SCHEDULED', 'INSTANT'])
+      .optional(),
+    customerId: z
+      .string()
+      .min(1)
+      .max(50)
+      .optional(),
   }),
 });
 

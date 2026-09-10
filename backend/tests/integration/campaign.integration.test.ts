@@ -230,6 +230,7 @@ describe('Campaign Integration Tests', () => {
       (prisma.campaign.findUnique as jest.Mock).mockResolvedValue({
         ...mockCampaign,
         status: 'DRAFT',
+        approvals: [],
       });
       (prisma.campaign.update as jest.Mock).mockResolvedValue({
         ...mockCampaign,

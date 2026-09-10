@@ -9,6 +9,13 @@ export function setupQueueHandlers(): void {
     const { type, data } = message;
 
     switch (type) {
+      case 'WELCOME':
+        await notificationService.sendWelcome(
+          data.customerId,
+          data.campaignId,
+          data.campaignName
+        );
+        break;
       case 'ENTRY_CONFIRMATION':
         await notificationService.sendEntryConfirmation(
           data.customerId,

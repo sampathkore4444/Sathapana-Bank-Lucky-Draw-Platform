@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { campaignApi } from '@/lib/api';
 import { formatDate, getStatusColor, getCampaignTypeIcon, formatNumber } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { HiPlus, HiPlay, HiPause, HiStop } from 'react-icons/hi2';
+import { HiPlus, HiPlay, HiPause, HiStop, HiDocumentDuplicate } from 'react-icons/hi2';
 
 interface Campaign {
   id: string;
@@ -66,6 +66,16 @@ export default function AdminCampaignsPage() {
       fetchCampaigns();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to close');
+    }
+  };
+
+  const handleDuplicate = async (id: string) => {
+    try {
+      const response = await campaignApi.duplicate(id);
+      toast.success('Campaign duplicated');
+      window.location.href = `/campaigns/${response.data.data.id}`;
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to duplicate');
     }
   };
 
@@ -139,6 +149,13 @@ export default function AdminCampaignsPage() {
                       <td>{formatDate(campaign.drawDate)}</td>
                       <td>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDuplicate(campaign.id)}
+                            className="btn text-sm py-1 px-2"
+                            title="Duplicate"
+                          >
+                            <HiDocumentDuplicate className="w-4 h-4" />
+                          </button>
                           {campaign.status === 'SCHEDULED' && (
                             <button
                               onClick={() => handleActivate(campaign.id)}

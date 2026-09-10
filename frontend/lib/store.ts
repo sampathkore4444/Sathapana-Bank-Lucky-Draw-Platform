@@ -12,6 +12,7 @@ interface User {
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isLoading: boolean;
   error: string | null;
   
@@ -23,14 +24,32 @@ interface AuthState {
     lastName: string;
     phone?: string;
   }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loadUser: () => Promise<void>;
   clearError: () => void;
 }
 
+const persistSession = (
+  data: { user: User; token: string; refreshToken: string },
+  set: (partial: Partial<AuthState>) => void
+) => {
+  localStorage.setItem('token', data.token);
+  localStorage.setItem('refreshToken', data.refreshToken);
+  localStorage.setItem('user', JSON.stringify(data.user));
+  set({ user: data.user, token: data.token, refreshToken: data.refreshToken });
+};
+
+const clearSession = (set: (partial: Partial<AuthState>) => void) => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+  set({ user: null, token: null, refreshToken: null });
+};
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: null,
+  refreshToken: null,
   isLoading: false,
   error: null,
 
@@ -38,12 +57,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login(email, password);
-      const { user, token } = response.data.data;
-      
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      set({ user, token, isLoading: false });
+      persistSession(response.data.data, set);
+      set({ isLoading: false });
     } catch (error: any) {
       const message = error.response?.data?.error || 'Login failed';
       set({ error: message, isLoading: false });
@@ -55,12 +70,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.register(data);
-      const { user, token } = response.data.data;
-      
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      set({ user, token, isLoading: false });
+      persistSession(response.data.data, set);
+      set({ isLoading: false });
     } catch (error: any) {
       const message = error.response?.data?.error || 'Registration failed';
       set({ error: message, isLoading: false });
@@ -68,23 +79,29 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    set({ user: null, token: null });
+  logout: async () => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      try {
+        await authApi.logout(refreshToken);
+      } catch {
+        // Best-effort revocation; clear the local session regardless
+      }
+    }
+    clearSession(set);
   },
 
   loadUser: async () => {
     const token = localStorage.getItem('token');
+    const refreshToken = localStorage.getItem('refreshToken');
     const userStr = localStorage.getItem('user');
     
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr);
-        set({ user, token });
+        set({ user, token, refreshToken });
       } catch {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearSession(set);
       }
     }
   },

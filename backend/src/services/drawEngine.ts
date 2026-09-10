@@ -3,6 +3,8 @@ import prisma from '../config/database';
 
 // ==================== Types ====================
 
+type DrawType = 'RANDOM' | 'TIERED' | 'SCHEDULED' | 'INSTANT';
+
 interface DrawParticipant {
   customerId: string;
   totalEntries: number;
@@ -14,6 +16,9 @@ interface DrawInput {
   numberOfWinners: number;
   numberOfAlternates: number;
   allowMultipleWins: boolean;
+  drawType?: DrawType;
+  customerId?: string;
+  batchNumber?: number;
 }
 
 export interface DrawOutput {
@@ -31,6 +36,13 @@ interface DrawResult {
   selectedAt: string;
 }
 
+interface PrizeAssignment {
+  rank: number;
+  customerId: string;
+  entriesAtDraw: number;
+  prizeId: string;
+}
+
 // ==================== Draw Engine Class ====================
 
 export class DrawEngine {
@@ -46,11 +58,13 @@ export class DrawEngine {
    * Execute a draw for the given campaign
    */
   async executeDraw(input: DrawInput): Promise<DrawOutput> {
+    const drawType = input.drawType || 'RANDOM';
+
     // 1. Pre-draw validation
-    await this.validateDraw(input);
+    const campaign = await this.validateDraw(input, drawType);
 
     // 2. Get eligible participants
-    const participants = await this.getEligibleParticipants(input.campaignId);
+    const participants = await this.getEligibleParticipants(input.campaignId, input.customerId);
 
     if (participants.length === 0) {
       throw new Error('No eligible participants found');
@@ -59,33 +73,77 @@ export class DrawEngine {
     // 3. Generate cryptographically secure seed
     this.seed = this.generateSeed();
 
-    // 4. Execute weighted random selection
-    const selectedWinners = this.weightedRandomSelection(
-      participants,
-      input.numberOfWinners,
-      input.allowMultipleWins
-    );
+    // 4. Execute selection based on draw type
+    const prizes = await prisma.prize.findMany({
+      where: { campaignId: input.campaignId },
+      orderBy: { rank: 'asc' },
+    });
 
-    // 5. Select alternates (from remaining participants)
+    const winnerAssignments: PrizeAssignment[] = [];
+    let selectedWinnerIds: string[] = [];
+
+    if (drawType === 'TIERED') {
+      const selection = this.tieredSelection(
+        participants,
+        prizes,
+        input.numberOfWinners,
+        input.allowMultipleWins
+      );
+      winnerAssignments.push(...selection.assignments);
+      selectedWinnerIds = selection.customerIds;
+    } else {
+      const selectedWinners = this.weightedRandomSelection(
+        participants,
+        input.numberOfWinners,
+        input.allowMultipleWins
+      );
+
+      selectedWinners.forEach((w, i) => {
+        const prize = prizes[i] || prizes[0];
+        winnerAssignments.push({
+          rank: i + 1,
+          customerId: w.customerId,
+          entriesAtDraw: w.totalEntries,
+          prizeId: prize?.id || '',
+        });
+      });
+      selectedWinnerIds = selectedWinners.map((w) => w.customerId);
+    }
+
+    // 5. Select alternates (from remaining participants) — instant draws do not use alternates
+    const alternateCount = drawType === 'INSTANT' ? 0 : input.numberOfAlternates;
     const remainingParticipants = participants.filter(
-      (p) => !selectedWinners.some((w) => w.customerId === p.customerId)
+      (p) => !selectedWinnerIds.includes(p.customerId)
     );
 
     const selectedAlternates = this.weightedRandomSelection(
       remainingParticipants,
-      input.numberOfAlternates,
+      alternateCount,
       false
     );
 
+    const alternateAssignments: PrizeAssignment[] = selectedAlternates.map((a, i) => ({
+      rank: winnerAssignments.length + i + 1,
+      customerId: a.customerId,
+      entriesAtDraw: a.totalEntries,
+      prizeId: prizes[0]?.id || '',
+    }));
+
     // 6. Generate audit hash
-    const auditHash = this.generateAuditHash(selectedWinners, selectedAlternates);
+    const auditHash = this.generateAuditHash(
+      winnerAssignments.map((w) => w.customerId),
+      alternateAssignments.map((a) => a.customerId)
+    );
 
     // 7. Save draw result to database
     const drawResult = await this.saveDrawResult(
       input.campaignId,
+      campaign,
+      drawType,
+      input.batchNumber,
       participants,
-      selectedWinners,
-      selectedAlternates,
+      winnerAssignments,
+      alternateAssignments,
       auditHash
     );
 
@@ -93,16 +151,16 @@ export class DrawEngine {
       drawId: drawResult.id,
       seed: this.seed,
       auditHash,
-      winners: selectedWinners.map((w, i) => ({
-        rank: i + 1,
+      winners: winnerAssignments.map((w) => ({
+        rank: w.rank,
         customerId: w.customerId,
-        entriesAtDraw: w.totalEntries,
+        entriesAtDraw: w.entriesAtDraw,
         selectedAt: new Date().toISOString(),
       })),
-      alternates: selectedAlternates.map((a, i) => ({
-        rank: i + 1,
+      alternates: alternateAssignments.map((a) => ({
+        rank: a.rank,
         customerId: a.customerId,
-        entriesAtDraw: a.totalEntries,
+        entriesAtDraw: a.entriesAtDraw,
         selectedAt: new Date().toISOString(),
       })),
     };
@@ -111,7 +169,7 @@ export class DrawEngine {
   /**
    * Validate that a draw can be executed
    */
-  private async validateDraw(input: DrawInput): Promise<void> {
+  private async validateDraw(input: DrawInput, drawType: DrawType) {
     const campaign = await prisma.campaign.findUnique({
       where: { id: input.campaignId },
     });
@@ -120,13 +178,19 @@ export class DrawEngine {
       throw new Error('Campaign not found');
     }
 
-    if (campaign.status !== 'ACTIVE' && campaign.status !== 'DRAW_DAY') {
-      throw new Error('Campaign is not in a valid state for drawing');
-    }
-
     const now = new Date();
-    if (now < campaign.drawDate) {
-      throw new Error('Draw date has not been reached');
+
+    if (drawType === 'INSTANT') {
+      if (campaign.status !== 'ACTIVE') {
+        throw new Error('Campaign is not active');
+      }
+    } else {
+      if (campaign.status !== 'ACTIVE' && campaign.status !== 'DRAW_DAY') {
+        throw new Error('Campaign is not in a valid state for drawing');
+      }
+      if (now < campaign.drawDate) {
+        throw new Error('Draw date has not been reached');
+      }
     }
 
     // Check prize availability
@@ -134,22 +198,42 @@ export class DrawEngine {
       where: { campaignId: input.campaignId },
     });
 
-    const totalPrizeQuantity = prizes.reduce((sum, p) => sum + p.quantity, 0);
-    if (input.numberOfWinners > totalPrizeQuantity) {
-      throw new Error('Not enough prizes available');
+    if (drawType === 'INSTANT') {
+      const remainingPrizes = prizes.reduce(
+        (sum, p) => sum + (p.quantity - p.allocated),
+        0
+      );
+      if (remainingPrizes < input.numberOfWinners) {
+        throw new Error('Not enough prizes available');
+      }
+    } else {
+      const totalPrizeQuantity = prizes.reduce((sum, p) => sum + p.quantity, 0);
+      if (input.numberOfWinners > totalPrizeQuantity) {
+        throw new Error('Not enough prizes available');
+      }
     }
+
+    return campaign;
   }
 
   /**
-   * Get all eligible participants for the campaign
+   * Get all eligible participants for the campaign (optionally limited to one customer)
    */
-  private async getEligibleParticipants(campaignId: string): Promise<DrawParticipant[]> {
+  private async getEligibleParticipants(
+    campaignId: string,
+    customerId?: string
+  ): Promise<DrawParticipant[]> {
+    const where: any = {
+      campaignId,
+      verified: true,
+    };
+    if (customerId) {
+      where.customerId = customerId;
+    }
+
     const entries = await prisma.customerEntry.groupBy({
       by: ['customerId'],
-      where: {
-        campaignId,
-        verified: true,
-      },
+      where,
       _sum: { entriesEarned: true },
     });
 
@@ -158,8 +242,50 @@ export class DrawEngine {
     return entries.map((entry) => ({
       customerId: entry.customerId,
       totalEntries: entry._sum.entriesEarned || 0,
-      weight: (entry._sum.entriesEarned || 0) / totalEntriesAll,
+      weight: totalEntriesAll > 0 ? (entry._sum.entriesEarned || 0) / totalEntriesAll : 0,
     }));
+  }
+
+  /**
+   * Tiered selection: draw for each prize tier in ascending rank from the remaining pool.
+   */
+  private tieredSelection(
+    participants: DrawParticipant[],
+    prizes: { id: string; rank: number; quantity: number }[],
+    numberOfWinners: number,
+    allowMultipleWins: boolean
+  ): { assignments: PrizeAssignment[]; customerIds: string[] } {
+    const assignments: PrizeAssignment[] = [];
+    const selectedIds: string[] = [];
+    let pool = [...participants];
+    let drawn = 0;
+    let rank = 1;
+
+    for (const prize of prizes) {
+      if (drawn >= numberOfWinners || pool.length === 0) break;
+
+      const count = Math.min(prize.quantity, numberOfWinners - drawn);
+      const selected = this.weightedRandomSelection(pool, count, false);
+
+      for (const winner of selected) {
+        assignments.push({
+          rank: rank++,
+          customerId: winner.customerId,
+          entriesAtDraw: winner.totalEntries,
+          prizeId: prize.id,
+        });
+      }
+
+      selectedIds.push(...selected.map((s) => s.customerId));
+      drawn += selected.length;
+
+      // Remove tier winners from pool for subsequent tiers (unless multiple wins allowed)
+      if (!allowMultipleWins) {
+        pool = pool.filter((p) => !selected.some((s) => s.customerId === p.customerId));
+      }
+    }
+
+    return { assignments, customerIds: selectedIds };
   }
 
   /**
@@ -184,6 +310,7 @@ export class DrawEngine {
     for (let i = 0; i < count && pool.length > 0; i++) {
       // Calculate total weight in current pool
       const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0);
+      if (totalWeight <= 0) break;
 
       // Generate random value
       const randomValue = this.secureRandom() * totalWeight;
@@ -223,16 +350,13 @@ export class DrawEngine {
   /**
    * Generate audit hash for draw results
    */
-  private generateAuditHash(
-    winners: DrawParticipant[],
-    alternates: DrawParticipant[]
-  ): string {
+  private generateAuditHash(winners: string[], alternates: string[]): string {
     const data = {
       seed: this.seed,
       algorithm: this.algorithm,
       timestamp: new Date().toISOString(),
-      winners: winners.map((w) => w.customerId),
-      alternates: alternates.map((a) => a.customerId),
+      winners,
+      alternates,
     };
 
     return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
@@ -243,44 +367,42 @@ export class DrawEngine {
    */
   private async saveDrawResult(
     campaignId: string,
+    campaign: { drawDate: Date; drawSettings: any },
+    drawType: DrawType,
+    batchNumber: number | undefined,
     participants: DrawParticipant[],
-    winners: DrawParticipant[],
-    alternates: DrawParticipant[],
+    winnerAssignments: PrizeAssignment[],
+    alternateAssignments: PrizeAssignment[],
     auditHash: string
   ) {
     const totalEntries = participants.reduce((sum, p) => sum + p.totalEntries, 0);
+    const nextBatch = drawType === 'SCHEDULED' ? batchNumber || 1 : 1;
 
     // Create draw result
     const drawResult = await prisma.drawResult.create({
       data: {
         campaignId,
         drawDate: new Date(),
+        drawType,
+        batchNumber: nextBatch,
         totalParticipants: participants.length,
         totalEntries,
         seed: this.seed,
         auditHash,
-        executedBy: [], // Will be set by the route handler
+        executedBy: [],
         witnessedBy: [],
       },
     });
 
-    // Get prizes for this campaign
-    const prizes = await prisma.prize.findMany({
-      where: { campaignId },
-      orderBy: { rank: 'asc' },
-    });
-
     // Create winner records
-    for (let i = 0; i < winners.length; i++) {
-      const prize = prizes[i] || prizes[0]; // Fallback to first prize if not enough
-
+    for (const winner of winnerAssignments) {
       await prisma.drawWinner.create({
         data: {
           drawResultId: drawResult.id,
-          customerId: winners[i].customerId,
-          prizeId: prize.id,
-          rank: i + 1,
-          entriesAtDraw: winners[i].totalEntries,
+          customerId: winner.customerId,
+          prizeId: winner.prizeId,
+          rank: winner.rank,
+          entriesAtDraw: winner.entriesAtDraw,
           isAlternate: false,
           status: 'SELECTED',
         },
@@ -288,27 +410,49 @@ export class DrawEngine {
     }
 
     // Create alternate records
-    for (let i = 0; i < alternates.length; i++) {
-      const prize = prizes[0]; // Alternates are for the first prize
-
+    for (const alternate of alternateAssignments) {
       await prisma.drawWinner.create({
         data: {
           drawResultId: drawResult.id,
-          customerId: alternates[i].customerId,
-          prizeId: prize.id,
-          rank: winners.length + i + 1,
-          entriesAtDraw: alternates[i].totalEntries,
+          customerId: alternate.customerId,
+          prizeId: alternate.prizeId,
+          rank: alternate.rank,
+          entriesAtDraw: alternate.entriesAtDraw,
           isAlternate: true,
           status: 'SELECTED',
         },
       });
     }
 
-    // Update campaign status
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: { status: 'DRAWN' },
-    });
+    // Update campaign status:
+    // - INSTANT draws leave the campaign active
+    // - SCHEDULED draws stay active until the final batch completes
+    // - RANDOM / TIERED draw the campaign to a close
+    if (drawType === 'INSTANT') {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'ACTIVE' },
+      });
+    } else if (drawType === 'SCHEDULED') {
+      const settings = (campaign.drawSettings || {}) as any;
+      const totalBatches = settings.schedule?.totalBatches;
+      if (totalBatches && nextBatch >= totalBatches) {
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'DRAWN' },
+        });
+      } else {
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+      }
+    } else {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'DRAWN' },
+      });
+    }
 
     return drawResult;
   }
@@ -333,7 +477,7 @@ export class DrawEngine {
 
     // This is a simplified verification - in production, you'd re-run the draw
     // with the same seed and compare results
-    return true;
+    return storedHash.length > 0;
   }
 }
 
