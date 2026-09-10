@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import prisma from './config/database';
 import { logger, morganStream, requestLogger } from './config/logger';
 import { healthCheck } from './services/healthCheck';
+import { setupQueueHandlers } from './services/queueSetup';
 import { sanitizeBody, sanitizeQuery, preventSQLInjection, preventPathTraversal } from './middleware/sanitization';
 import { auditAuth, auditSensitiveOps, detectSuspiciousActivity, blockSuspiciousIPs } from './middleware/securityAudit';
 
@@ -188,6 +189,9 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ==================== START SERVER ====================
+
+// Register message queue consumers before starting the server
+setupQueueHandlers();
 
 const PORT = config.port;
 

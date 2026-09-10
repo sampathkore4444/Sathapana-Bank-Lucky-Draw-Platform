@@ -17,6 +17,9 @@ jest.mock('../../src/config/database', () => {
       findMany: jest.fn(),
       create: jest.fn(),
     },
+    customerEntry: {
+      groupBy: jest.fn(),
+    },
     auditLog: {
       create: jest.fn(),
     },
@@ -233,6 +236,7 @@ describe('Campaign Integration Tests', () => {
         status: 'ACTIVE',
       });
       (prisma.auditLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.customerEntry.groupBy as jest.Mock).mockResolvedValue([]);
 
       const response = await request(app)
         .post('/campaigns/campaign-1/activate')

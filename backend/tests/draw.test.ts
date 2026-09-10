@@ -22,6 +22,7 @@ jest.mock('../src/config/database', () => ({
     },
     drawWinner: {
       create: jest.fn(),
+      findMany: jest.fn(),
     },
     prize: {
       findMany: jest.fn(),
@@ -91,6 +92,7 @@ describe('Draw API', () => {
       (prisma.campaign.findUnique as jest.Mock).mockResolvedValue(mockCampaign);
       (prisma.drawResult.update as jest.Mock).mockResolvedValue(mockDrawResult);
       (prisma.auditLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.drawWinner.findMany as jest.Mock).mockResolvedValue([]);
 
       const response = await request(app)
         .post('/draws')

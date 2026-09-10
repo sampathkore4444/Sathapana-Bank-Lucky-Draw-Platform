@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { EntryType } from '@prisma/client';
 import { AppError } from '../utils/appError';
 import { EntryQuery } from '../types';
+import { messageQueue } from './messageQueue';
 
 interface RegisterEntryInput {
   customerId: string;
@@ -86,6 +87,18 @@ export class EntryService {
         details: { customerId: data.customerId, campaignId: data.campaignId, entriesEarned },
       },
     });
+
+    // Queue entry confirmation notification (best-effort, must not fail the registration)
+    try {
+      await messageQueue.publish('notifications', 'ENTRY_CONFIRMATION', {
+        customerId: data.customerId,
+        campaignId: data.campaignId,
+        entriesEarned,
+        totalEntries: newEntry.cumulativeEntries,
+      });
+    } catch (error) {
+      console.error('Failed to queue entry confirmation:', error);
+    }
 
     return { entry: newEntry, entriesEarned };
   }

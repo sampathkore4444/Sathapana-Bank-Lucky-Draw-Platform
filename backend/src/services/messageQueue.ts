@@ -55,8 +55,12 @@ class MessageQueue {
     if (!this.handlers.has(queue)) {
       this.handlers.set(queue, []);
     }
-    this.handlers.get(queue)!.push(handler);
-    console.log(`[Queue] Subscribed to ${queue}`);
+
+    const handlers = this.handlers.get(queue)!;
+    if (!handlers.includes(handler)) {
+      handlers.push(handler);
+      console.log(`[Queue] Subscribed to ${queue}`);
+    }
   }
 
   private async processQueue(queue: string): Promise<void> {

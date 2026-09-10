@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { CampaignType } from '@prisma/client';
 import { AppError } from '../utils/appError';
 import { CampaignQuery } from '../types';
+import { messageQueue } from './messageQueue';
 
 interface CreateCampaignInput {
   name: string;
@@ -178,6 +179,27 @@ export class CampaignService {
         details: { previousStatus: campaign.status },
       },
     });
+
+    // Queue draw reminders for existing participants (best-effort, must not fail the activation)
+    try {
+      const participants = await prisma.customerEntry.groupBy({
+        by: ['customerId'],
+        where: { campaignId: id },
+        _sum: { entriesEarned: true },
+      });
+
+      for (const participant of participants) {
+        await messageQueue.publish('notifications', 'DRAW_REMINDER', {
+          customerId: participant.customerId,
+          campaignId: id,
+          campaignName: campaign.name,
+          drawDate: campaign.drawDate.toISOString(),
+          totalEntries: participant._sum.entriesEarned || 0,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to queue draw reminders:', error);
+    }
 
     return updated;
   }

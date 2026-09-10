@@ -1,6 +1,7 @@
 import prisma from '../config/database';
 import { DrawEngine } from './drawEngine';
 import { AppError } from '../utils/appError';
+import { messageQueue } from './messageQueue';
 
 interface ExecuteDrawInput {
   campaignId: string;
@@ -53,6 +54,25 @@ export class DrawService {
         },
       },
     });
+
+    // Queue winner announcements (best-effort, must not fail the draw execution)
+    try {
+      const winnerRecords = await prisma.drawWinner.findMany({
+        where: { drawResultId: result.drawId, isAlternate: false },
+        include: { prize: { select: { name: true } } },
+      });
+
+      for (const winner of winnerRecords) {
+        await messageQueue.publish('notifications', 'WINNER_ANNOUNCEMENT', {
+          customerId: winner.customerId,
+          campaignId,
+          campaignName: campaign.name,
+          prizeName: winner.prize.name,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to queue winner announcements:', error);
+    }
 
     return result;
   }
